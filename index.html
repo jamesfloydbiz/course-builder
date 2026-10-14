@@ -27,6 +27,11 @@
   .row{cursor:pointer}.row:hover{border-color:#444}.locked{opacity:.55}
   input[type=date],input[type=email]{background:#111;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font:inherit;font-size:14px}
   .sub{font-size:12px;color:var(--dim)}
+  details>summary{list-style:none;cursor:pointer}
+  details>summary::-webkit-details-marker{display:none}
+  details>summary::before{content:"\25B8  ";color:var(--dim)}
+  details[open]>summary::before{content:"\25BE  "}
+  .dn-row+.dn-row{border-top:1px solid var(--border)}
 </style>
 </head>
 <body>
@@ -209,35 +214,55 @@ function placementDone() {
 
 // ---------- Today ----------
 function today() {
-  const P = Engine.plan(S, nodes, now()), due = P.today.review;
-  const done = nodes.filter((n) => ["mastered", "known"].includes(S.nodes[n.id].state)).length;
+  const P = Engine.plan(S, nodes, now()), due = P.today.review, learn = P.today.new;
+  const secure = (id) => ["mastered", "known"].includes(S.nodes[id].state);
+  const done = nodes.filter((n) => secure(n.id)).length;
   const badge = (id) => { const n = S.nodes[id];
     return n.state === "mastered" ? '<span class="pill g">mastered</span>' : n.state === "known" ? '<span class="pill g">known</span>'
-      : n.state === "learning" ? `<span class="pill w">level ${n.tier}${n.checks.length ? " · " + n.checks.length + "/3 checks" : ""}</span>` : P.locked.includes(id) ? '<span class="pill">locked</span>' : '<span class="pill">new</span>'; };
+      : n.state === "learning" ? `<span class="pill w">in progress${n.checks.length ? " · " + n.checks.length + "/3 checks" : ""}</span>` : P.locked.includes(id) ? '<span class="pill">locked</span>' : '<span class="pill">not started</span>'; };
+  const nextReview = Object.values(S.nodes).filter((n) => ["mastered", "known"].includes(n.state) && n.due != null && n.due > now()).map((n) => n.due).sort((x, y) => x - y)[0];
   const mine = me && course.owner === me.id && !course.seeded;
+  const obs = (id) => esc((nodes.find((n) => n.id === id) || {}).observable || "");
+  const mapOpen = (() => { try { return localStorage.getItem("lib_map_open") === "1"; } catch { return false; } })();
+  const row = (kind, title, sub, btn, primary, attrs) => `<div class="flex items-center justify-between gap-3 flex-wrap py-3 dn-row">
+      <div style="min-width:12rem;flex:1"><div class="sub" style="letter-spacing:.08em">${kind}</div><div class="font-bold text-sm mt-1">${title}</div><div class="sub mt-1">${sub}</div></div>
+      <button class="btn ${primary ? "btn-p" : ""}" ${attrs}>${btn}</button></div>`;
+  let items = "";
+  if (due.length) items += row("REVIEW", `${due.length} concept${due.length > 1 ? "s" : ""} due`, `${due.map(nameOf).map(esc).join(", ")}. Mixed questions from each, about ${Math.min(18, due.length * 3)} in all.`, "Start review", true, 'id="rv"');
+  learn.forEach((id, i) => { items += row("LEARN", esc(nameOf(id)), obs(id), S.nodes[id].state === "learning" ? "Continue" : "Start", !due.length && i === 0, `data-go="${id}"`); });
+  if (!items) items = `<div class="py-3 text-sm">You're all caught up for today.<div class="sub mt-1">${nextReview ? "Your next review is " + fmtDay(nextReview) + "." : P.remaining.length ? "Open a concept below to keep going." : "Everything is secure."}</div></div>`;
   app.innerHTML = `<a href="./" class="block text-xs text-gray-500 hover:text-white mt-4">← Library</a>
     <h1 class="text-2xl font-bold mt-1">${esc(course.title)}</h1>
     <p class="sub mt-1">${esc(course.subject || "")}${course.author ? " · by " + esc(course.author) : ""}</p>
-    <div class="grid grid-cols-3 gap-3 mt-5 text-center">
-      <div class="card p-3"><div class="text-xl font-bold">${P.daysLeft}</div><div class="sub">days to test</div></div>
-      <div class="card p-3"><div class="text-xl font-bold">${pct(P.readiness)}%</div><div class="sub">estimated readiness</div></div>
-      <div class="card p-3"><div class="text-xl font-bold">${done}/${nodes.length}</div><div class="sub">concepts secure</div></div></div>
+    <div class="grid grid-cols-3 gap-2 mt-4 text-center">
+      <div class="card p-2"><div class="text-lg font-bold">${P.daysLeft}</div><div class="sub">days to test</div></div>
+      <div class="card p-2"><div class="text-lg font-bold">${pct(P.readiness)}%</div><div class="sub">estimated readiness</div></div>
+      <div class="card p-2"><div class="text-lg font-bold">${done}/${nodes.length}</div><div class="sub">concepts secure</div></div></div>
+    <div class="sub mt-3">${P.remaining.length ? `${P.remaining.length} left to learn in ${P.teachDays} day${P.teachDays > 1 ? "s" : ""}${P.buffer ? `, then ${P.buffer} of review` : ""}: about ${P.newPerDay} a day. ${P.onTrack ? '<span style="color:var(--acc)">On pace.</span>' : '<span style="color:var(--warn)">Behind pace, so do a little extra today.</span>'}` : "Everything is secure. Reviews keep it that way until the test."}
+      <span class="whitespace-nowrap">Test date <input id="td" type="date" value="${esc(S.testDate || "")}" style="padding:2px 6px;font-size:12px"></span></div>
+    <section class="card p-4 mt-5" style="border-color:#3a3a3a">
+      <div class="text-xs font-bold" style="color:var(--acc);letter-spacing:.14em">DO NOW</div>
+      ${items}
+    </section>
     ${trainerCard()}
-    <div class="sub mt-3">${P.remaining.length ? `${P.remaining.length} concept${P.remaining.length > 1 ? "s" : ""} to learn in ${P.teachDays} day${P.teachDays > 1 ? "s" : ""}${P.buffer ? `, then ${P.buffer} review-only` : ""} → about ${P.newPerDay} a day. ${P.onTrack ? '<span style="color:var(--acc)">On pace.</span>' : '<span style="color:var(--warn)">Behind pace. Do a little extra today.</span>'}` : "Everything is secure. Reviews keep it that way until the test."}
-      · Test date <input id="td" type="date" value="${esc(S.testDate || "")}" style="padding:2px 6px;font-size:12px"></div>
-    ${due.length ? `<div class="card p-4 mt-6"><div class="font-bold">Review due</div><div class="sub mt-1">${due.map(nameOf).map(esc).join(", ")}</div><button class="btn btn-p mt-3" id="rv">Start mixed review</button></div>` : ""}
-    ${P.today.new.length ? `<h2 class="text-sm text-gray-500 mt-6 mb-2">NEW TODAY</h2><div class="space-y-2">${P.today.new.map((id) => `<div class="card p-3 row" data-n="${id}"><div class="flex justify-between gap-3 text-sm"><span>${esc(nameOf(id))}</span>${badge(id)}</div><div class="sub mt-1">${esc((nodes.find((n) => n.id === id) || {}).observable || "")}</div></div>`).join("")}</div>` : ""}
-    <h2 class="text-sm text-gray-500 mt-6 mb-2">ALL CONCEPTS</h2>
-    <div class="space-y-2">${nodes.map((n, i) => `<div class="card p-3 row ${P.locked.includes(n.id) ? "locked" : ""}" data-n="${n.id}"><div class="flex justify-between gap-3 text-sm"><span>${i + 1}. ${esc(n.name)}</span>${badge(n.id)}</div>${P.locked.includes(n.id) ? `<div class="sub mt-1">Needs: ${(n.prereqs || []).filter((p) => !["mastered", "known"].includes(S.nodes[p].state)).map(nameOf).map(esc).join(", ")}</div>` : ""}</div>`).join("")}</div>
-    ${mine ? `<div class="mt-8 flex gap-2"><button class="btn" id="pub">${course.published ? "Unshare from library" : "Share in library"}</button><button class="btn" id="del">Delete course</button></div>` : ""}
-    <div class="mt-6"><button class="btn" id="redo">Retake the placement test</button></div>`;
+    <details id="map" class="mt-6" ${mapOpen ? "open" : ""}>
+      <summary class="text-sm"><b>ALL CONCEPTS</b> <span class="sub">· ${done} of ${nodes.length} secure</span></summary>
+      <div class="space-y-2 mt-3">${nodes.map((n, i) => `<div class="card p-3 row ${P.locked.includes(n.id) ? "locked" : ""}" data-n="${n.id}"><div class="flex justify-between gap-3 text-sm"><span>${i + 1}. ${esc(n.name)}</span>${badge(n.id)}</div>${P.locked.includes(n.id) ? `<div class="sub mt-1">Needs first: ${(n.prereqs || []).filter((p) => !secure(p)).map(nameOf).map(esc).join(", ")}</div>` : ""}</div>`).join("")}</div>
+    </details>
+    <details id="opts" class="mt-6"><summary class="sub">Course options</summary>
+      <div class="mt-3 flex gap-2 flex-wrap">
+        ${mine ? `<button class="btn" id="pub">${course.published ? "Unshare from library" : "Share in library"}</button><button class="btn" id="del">Delete course</button>` : ""}
+        <button class="btn" id="redo">Retake the placement test</button></div>
+    </details>`;
   app.querySelectorAll("[data-n]").forEach((el) => (el.onclick = () => nodeScreen(el.dataset.n)));
+  app.querySelectorAll("[data-go]").forEach((el) => (el.onclick = () => nodeScreen(el.dataset.go)));
+  $("map").addEventListener("toggle", () => { try { localStorage.setItem("lib_map_open", $("map").open ? "1" : "0"); } catch {} });
   $("td").onchange = (e) => { S.testDate = e.target.value; save(); today(); };
   if ($("rv")) $("rv").onclick = review;
   $("redo").onclick = () => { if (confirm("Reset all progress in this course and start over?")) { S = null; try { localStorage.removeItem(lk()); } catch {} if (me) sb.from("course_progress").delete().eq("course_id", course.id).then(() => {}); intro(); } };
   if (mine) {
     $("pub").onclick = async () => { await sb.from("courses").update({ published: !course.published }).eq("id", course.id); course.published = !course.published; today(); };
-    $("del").onclick = async () => { if (confirm("Delete this course for good? You will be able to build another.")) { await sb.from("courses").delete().eq("id", course.id); location.hash = ""; } };
+    $("del").onclick = async () => { if (confirm("Delete this course for good?")) { await sb.from("courses").delete().eq("id", course.id); location.hash = ""; } };
   }
 }
 
