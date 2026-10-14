@@ -29,7 +29,7 @@
   <a href="https://jamesfloyds.world/projects/tech-builds/" class="text-xs text-gray-500 hover:text-white">← Tech Builds</a>
   <h1 class="text-2xl font-bold mt-1">Course Builder</h1>
   <p class="text-sm text-gray-400 mt-2">Upload your standards, study guide or syllabus and set your test date. You get a course built backward from what the test needs: lessons in small steps and a large bank of practice questions. When you start studying, a short placement test finds what you already know, and the plan fits the days you have left.</p>
-  <p class="text-xs text-gray-500 mt-2">Free. Every course you build is saved to your account and stays in the <a class="underline" href="../">library</a>, private until you choose to share it. Building takes about 10 to 15 minutes, and <b style="color:#facc15">you need to keep this tab open the whole time</b>.</p>
+  <p class="text-xs text-gray-500 mt-2">Free. Every course you build is saved to your account and, unless you switch it off below, shared in the public <a class="underline" href="../">library</a> so others can use it. The file you upload is never shared, only the lessons and questions built from it. Building takes about 10 to 15 minutes, and <b style="color:#facc15">you need to keep this tab open the whole time</b>.</p>
 
   <noscript><p class="mt-6">This tool needs JavaScript.</p></noscript>
 
@@ -44,6 +44,7 @@
     <label for="f-date">Test date</label><input id="f-date" type="date">
     <label for="f-author">Your name in the library (optional)</label>
     <input id="f-author" maxlength="60">
+    <label class="flex items-start gap-2 mt-4" style="color:#eaeaea;font-size:13px;margin:16px 0 0"><input id="f-share" type="checkbox" checked style="width:auto;margin-top:3px"><span>Share this course in the public library. <span class="text-gray-500">Anyone can then study it. You can unshare it any time from the course page.</span></span></label>
     <button id="f-go" class="btn btn-p mt-5 w-full">Build my course</button>
     <div class="text-xs mt-2" style="color:#facc15">Don't close or refresh this tab while it builds. You'll get a chance to review the plan before the long part starts.</div>
     <div id="f-err" class="err"></div>
@@ -71,7 +72,7 @@
   <section id="s-review" class="card p-5 mt-6" hidden>
     <h2 class="font-bold">Does this plan look right?</h2>
     <p class="text-xs text-gray-500 mt-1">This is what the course will teach, in order. Fixing it now costs one quick step. Fixing it later means starting over.</p>
-    <ol id="v-list" class="mt-4 space-y-3 text-sm"></ol>
+    <ol id="v-list" class="mt-4 space-y-3 text-sm" style="list-style:none;padding:0;margin:0"></ol>
     <p id="v-est" class="text-xs text-gray-500 mt-4"></p>
     <button id="v-ok" class="btn btn-p mt-4 w-full">Looks good, build it</button>
     <div class="mt-5 border-t pt-4" style="border-color:#252525">
@@ -91,8 +92,8 @@
 
   <!-- 3. progress -->
   <section id="s-run" class="card p-5 mt-6" hidden>
-    <ol class="space-y-1 text-sm" id="r-steps">
-      <li class="step" data-s="standards">1. Reading your material into measurable standards</li>
+    <ol class="space-y-1 text-sm" id="r-steps" style="list-style:none;padding:0;margin:0">
+      <li class="step" data-s="standards">1. Reading your material and listing what the test needs you to be able to do</li>
       <li class="step" data-s="graph">2. Mapping what depends on what</li>
       <li class="step" data-s="lessons">3. Writing lessons and a large question bank, checking every answer key</li>
       <li class="step" data-s="finish">4. Finishing up</li>
@@ -107,6 +108,7 @@
   <!-- 4. done -->
   <section id="s-done" class="card p-5 mt-6" hidden>
     <h2 class="font-bold">Your course is ready.</h2>
+    <p id="d-note" class="text-xs text-gray-500 mt-2"></p>
     <a id="d-link" class="btn btn-p mt-4 inline-block" href="../">Open it</a>
   </section>
 </div>
@@ -154,6 +156,7 @@ function createBody(force) {
 }
 async function create(force) {
   $("f-err").textContent = ""; $("f-go").disabled = true;
+  try { localStorage.setItem("cb_share", $("f-share").checked ? "1" : "0"); } catch {}
   try {
     const r = await call(createBody(force));
     if (r.existing) {
@@ -255,11 +258,20 @@ async function lessons(r) {
   await Promise.all([worker(), worker(), worker()]);
   if (failed) { window.removeEventListener("beforeunload", warnLeave); return fail(failed); }
   mark("finish");
-  try { await call({ action: "finish", course_id: courseId }); showDone(); } catch (e) { fail(e); }
+  try { await call({ action: "finish", course_id: courseId }); await publishIfWanted(); showDone(); } catch (e) { fail(e); }
+}
+// Public by default. Only runs right after a build finishes, and only if the choice was recorded as "1",
+// so an unshared course is never re-published and a lost choice fails safe to private.
+let sharedNow = false;
+async function publishIfWanted() {
+  let want = false; try { want = localStorage.getItem("cb_share") === "1"; } catch {}
+  if (!want) return;
+  const { error } = await sb.from("courses").update({ published: true }).eq("id", courseId);
+  sharedNow = !error;
 }
 function showDone() {
   window.removeEventListener("beforeunload", warnLeave);
-  show("s-done"); $("d-link").href = "../#" + courseId; localStorage.removeItem("cb_course");
+  show("s-done"); $("d-link").href = "../#" + courseId; $("d-note").textContent = sharedNow ? "It is shared in the public library. You can unshare it from the course page." : ""; localStorage.removeItem("cb_course");
 }
 
 (async () => {

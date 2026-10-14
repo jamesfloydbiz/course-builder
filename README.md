@@ -1,6 +1,6 @@
 # Course Builder
 
-Upload standards, a study guide or a syllabus, set a test date, and get a study course built from it. Courses are saved to the learner's account and can be shared in a public library.
+Upload standards, a study guide or a syllabus, set a test date, and get a study course built from it. Courses are saved to the learner's account and shared in a public library by default (they can opt out before building, or unshare later). The uploaded file itself is never shared.
 
 - **Library / player:** https://jamesfloydbiz.github.io/course-builder/
 - **Builder:** https://jamesfloydbiz.github.io/course-builder/build/
