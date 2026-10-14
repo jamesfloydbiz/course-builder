@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Course Library</title>
+<meta name="description" content="Study courses built from real standards and syllabi. A placement test finds what you already know, then adaptive practice, spaced review and mastery checks get you ready by your test date.">
+<link rel="canonical" href="https://jamesfloydbiz.github.io/course-builder/">
+<meta name="robots" content="index,follow">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.min.js"></script>
+<style>
+  :root{--bg:#0a0a0a;--fg:#eaeaea;--dim:#888;--card:#151515;--border:#252525;--acc:#4ade80;--bad:#f87171;--warn:#facc15}
+  html,body{background:var(--bg);color:var(--fg);font-family:ui-monospace,Menlo,Consolas,monospace}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:8px}
+  .btn{border:1px solid var(--border);background:#111;color:var(--fg);border-radius:6px;padding:9px 14px;cursor:pointer;font:inherit;font-size:14px}
+  .btn:hover{background:#1c1c1c}.btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn-p{background:var(--fg);color:#0a0a0a;border-color:var(--fg)}.btn-p:hover{background:#fff}
+  .opt{display:block;width:100%;text-align:left;padding:12px 16px;background:#111;border:1px solid var(--border);border-radius:8px;color:var(--fg);cursor:pointer;margin-bottom:8px;font:inherit;font-size:14px}
+  .opt:hover:not(:disabled){background:#1c1c1c;border-color:#444}
+  .opt.dk{color:var(--dim);border-style:dashed}
+  .opt.ok{background:rgba(74,222,128,.12);border-color:var(--acc)}.opt.no{background:rgba(248,113,113,.12);border-color:var(--bad)}
+  .bar{height:6px;background:#1a1a1a;border-radius:99px;overflow:hidden}.bar>div{height:100%;background:var(--acc)}
+  .pill{display:inline-block;padding:2px 8px;font-size:11px;border-radius:99px;background:#1a1a1a;border:1px solid var(--border);color:var(--dim);white-space:nowrap}
+  .pill.g{color:var(--acc);border-color:#1f4d33}.pill.w{color:var(--warn);border-color:#554a14}
+  .prose p{margin:.6em 0;line-height:1.6}
+  .row{cursor:pointer}.row:hover{border-color:#444}.locked{opacity:.55}
+  input[type=date],input[type=email]{background:#111;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font:inherit;font-size:14px}
+  .sub{font-size:12px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="max-w-3xl mx-auto px-4 py-8">
+  <a href="https://jamesfloyds.world/projects/tech-builds/" class="text-xs text-gray-500 hover:text-white">← Tech Builds</a>
+  <div id="app"><p class="text-gray-500 mt-6">Loading...</p></div>
+</div>
+<script src="js/learn.js"></script>
+<script src="js/engine.js"></script>
+<script>
+const { sb, ensureUser, esc } = Learn;
+const app = document.getElementById("app");
+let me = null, course = null, nodes = [], bank = {}, lessons = {}, S = null, html = false;
+const $ = (id) => document.getElementById(id);
+const now = () => Date.now();
+const nameOf = (id) => (nodes.find((n) => n.id === id) || {}).name || id;
+const r = (s) => (html ? String(s ?? "") : esc(s));
+const pct = (x) => Math.round(x * 100);
+const fmtDay = (t) => { const d = Math.round((t - now()) / 86400000); return d <= 0 ? "today" : d === 1 ? "tomorrow" : "in " + d + " days"; };
+
+// ---------- persistence: local first, synced to the account when there is one ----------
+const lk = () => "lib_state2_" + course.id;
+async function loadState() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(lk()) || "null"); } catch {}
+  if (me) {
+    const { data } = await sb.from("course_progress").select("state").eq("course_id", course.id).maybeSingle();
+    const rs = data && data.state && data.state.v === 2 ? data.state : null;
+    if (rs && (!s || (rs.savedAt || 0) >= (s.savedAt || 0))) s = rs;
+  }
+  return s && s.v === 2 ? s : null;
+}
+let saveT;
+function save() {
+  S.savedAt = now();
+  try { localStorage.setItem(lk(), JSON.stringify(S)); } catch {}
+  if (!me) return;
+  clearTimeout(saveT);
+  saveT = setTimeout(() => sb.from("course_progress").upsert({ course_id: course.id, owner: me.id, state: S, updated_at: new Date().toISOString() }), 700);
+}
+
+// ---------- library list + account ----------
+async function home() {
+  course = null;
+  const { data } = await sb.from("courses").select("id,title,subject,owner,author,published,status,seeded").eq("status", "ready").order("seeded", { ascending: false }).order("created_at", { ascending: false });
+  const mine = data.filter((c) => me && c.owner === me.id && !c.seeded), pub = data.filter((c) => c.published);
+  const card = (c) => `<div class="card p-4 row" onclick="location.hash='${c.id}'">
+      <div class="flex justify-between gap-3"><div class="font-bold">${esc(c.title)}</div>${me && c.owner === me.id && !c.seeded ? `<span class="pill">${c.published ? "shared" : "private"}</span>` : ""}</div>
+      <div class="sub mt-1">${esc(c.subject || "")}${c.author ? " · by " + esc(c.author) : ""}</div></div>`;
+  app.innerHTML = `<h1 class="text-2xl font-bold mt-1">Course Library</h1>
+    <p class="text-sm text-gray-400 mt-2">Courses built from real standards and syllabi. Each one finds what you already know, then trains the rest until you can prove it.</p>
+    <a class="btn btn-p inline-block mt-4" href="build/">Build your own course</a>
+    ${accountBox()}
+    ${mine.length ? `<h2 class="text-sm text-gray-500 mt-8 mb-2">YOUR COURSES (saved to your account)</h2><div class="space-y-3">${mine.map(card).join("")}</div>` : ""}
+    <h2 class="text-sm text-gray-500 mt-8 mb-2">SHARED COURSES</h2>
+    <div class="space-y-3">${pub.map(card).join("") || '<p class="text-sm text-gray-500">None yet.</p>'}</div>`;
+  wireAccount();
+}
+function accountBox() {
+  if (!me) return "";
+  if (!me.is_anonymous) return `<p class="sub mt-4">Signed in as ${esc(me.email || "")}. Your courses and progress follow you to any device.</p>`;
+  return `<div class="card p-4 mt-6"><div class="text-sm font-bold">Keep your progress</div>
+    <p class="sub mt-1">Right now your account lives only in this browser. Add an email and it follows you to any device. Nothing you've done is lost.</p>
+    <div class="flex gap-2 mt-3 flex-wrap"><input id="em" type="email" placeholder="you@example.com" class="flex-1" style="min-width:12rem"><button class="btn" id="em-save">Save my account</button></div>
+    <div class="sub mt-2">Already saved an account? <a href="javascript:void 0" id="em-in" class="underline">Email me a sign-in link</a></div><div id="em-msg" class="sub mt-2"></div></div>`;
+}
+function wireAccount() {
+  const save_ = $("em-save"); if (!save_) return;
+  const msg = (t) => ($("em-msg").textContent = t);
+  save_.onclick = async () => {
+    const email = $("em").value.trim(); if (!email) return msg("Enter an email first.");
+    const { error } = await sb.auth.updateUser({ email }, { emailRedirectTo: location.href });
+    msg(error ? error.message : "Check your email and click the link to confirm. Then your account is saved.");
+  };
+  $("em-in").onclick = async () => {
+    const email = $("em").value.trim(); if (!email) return msg("Enter your email first.");
+    const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href, shouldCreateUser: false } });
+    msg(error ? error.message : "Sign-in link sent. Open it on this device.");
+  };
+}
+
+// ---------- load a course ----------
+async function openCourse(id) {
+  const { data: c } = await sb.from("courses").select("*").eq("id", id).maybeSingle();
+  if (!c) { app.innerHTML = '<p class="mt-6">Course not found, or it is private.</p><a class="underline" href="./">Back</a>'; return; }
+  course = c; html = !!c.spec.static_html;
+  if (c.spec.kind === "static") await loadStatic(); else await loadBank();
+  S = await loadState();
+  if (S && S.testDate == null && c.test_date) S.testDate = c.test_date;
+  S ? (S.placed ? today() : placement()) : intro();
+}
+async function loadBank() {
+  nodes = course.spec.graph.nodes; bank = {}; lessons = {};
+  const [{ data: ls }, { data: its }] = await Promise.all([
+    sb.from("course_lessons").select("node_id,content").eq("course_id", course.id),
+    sb.from("course_items").select("node_id,tier,items").eq("course_id", course.id)]);
+  (ls || []).forEach((l) => (lessons[l.node_id] = l.content));
+  (its || []).forEach((i) => ((bank[i.node_id] = bank[i.node_id] || {})[i.tier] = i.items));
+}
+async function loadStatic() {
+  html = true;
+  const qsUrl = String(course.spec.url).replace(/^\/builds\/stat1201-trainer\/questions\.json$/, "data/stat1201-questions.json");
+  const qs = await (await fetch(new URL(qsUrl, location.href))).json();
+  const topics = [...new Set(qs.map((q) => q.c))];
+  const pre = { 0: [], 1: [0], 2: [1], 3: [], 4: [3], 5: [4] };
+  nodes = topics.map((t, i) => ({ id: "t" + i, name: t, observable: `Answer ${t} questions at 90%+ without hints`, prereqs: (pre[i] || []).map((p) => "t" + p) }));
+  bank = {}; lessons = {};
+  topics.forEach((t, i) => {
+    const b = { 1: [], 2: [], 3: [] };
+    qs.filter((q) => q.c === t).forEach((q) => b[Math.min(3, Math.max(1, q.d))].push({ q: q.q, o: q.o, a: q.a, e: q.e }));
+    const all = [...b[1], ...b[2], ...b[3]];
+    b[0] = all.filter((_, k) => k % Math.max(1, Math.floor(all.length / 4)) === 0).slice(0, 4);
+    bank["t" + i] = b;
+  });
+}
+
+// ---------- question primitive: the question sits alone; the explanation appears only after you commit ----------
+function showQuestion(it, o) {
+  app.innerHTML = o.head + `<div class="prose mt-6"><p><b>${r(it.q)}</b></p></div><div class="mt-3" id="os">${
+    it.o.map((x, k) => `<button class="opt" data-k="${k}">${r(x)}</button>`).join("")}${o.dontKnow ? '<button class="opt dk" data-k="-1">I don\'t know</button>' : ""}</div><div id="fb" class="prose"></div>`;
+  const back = $("back"); if (back) back.onclick = o.onBack || today;
+  app.querySelectorAll(".opt").forEach((b) => (b.onclick = () => {
+    const k = +b.dataset.k, ok = k === it.a;
+    if (!o.feedback) return o.onResult(ok, k);
+    app.querySelectorAll(".opt").forEach((e) => { e.disabled = true; if (+e.dataset.k === it.a) e.classList.add("ok"); });
+    if (!ok && k >= 0) b.classList.add("no");
+    $("fb").innerHTML = `<p>${r(it.e || "")}</p><button class="btn btn-p mt-4" id="nx">Next</button>`;
+    $("nx").onclick = () => o.onResult(ok, k);
+  }));
+}
+const headFor = (label, i, n, back) => `${back ? `<a href="javascript:void 0" id="back" class="block text-xs text-gray-500 mt-4">← ${esc(back)}</a>` : ""}
+  <div class="text-xs text-gray-500 mt-3">${esc(label)}${n ? " · " + (i + 1) + " of " + n : ""}</div><div class="bar mt-2"><div style="width:${n ? Math.round(i / n * 100) : 0}%"></div></div>`;
+
+// ---------- intro + placement ----------
+function intro() {
+  const dflt = course.test_date || "";
+  app.innerHTML = `<a href="./" class="block text-xs text-gray-500 hover:text-white mt-4">← Library</a>
+    <h1 class="text-2xl font-bold mt-1">${esc(course.title)}</h1>
+    <p class="sub mt-1">${esc(course.subject || "")}${course.author ? " · by " + esc(course.author) : ""} · ${nodes.length} concepts</p>
+    <div class="card p-5 mt-6"><div class="font-bold">How much of this do you already know?</div>
+      <p class="sub mt-1">Be honest. If you say some or all, you'll answer a short test so the course skips what you know and starts where you need it.</p>
+      <div class="mt-4 space-y-2"><button class="opt" data-r="none">I know nothing</button><button class="opt" data-r="some">I know some</button><button class="opt" data-r="all">I know all of it</button></div>
+      <div class="mt-5"><label class="sub block mb-1" for="td">When is your test?</label><input id="td" type="date" value="${esc(dflt)}"></div><div id="ie" class="sub mt-2" style="color:var(--bad)"></div></div>`;
+  const min = new Date(Date.now() + 86400000); $("td").min = min.toISOString().slice(0, 10);
+  app.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => {
+    const td = $("td").value;
+    if (!td || new Date(td + "T00:00:00") <= new Date()) return ($("ie").textContent = "Pick a test date in the future first.");
+    S = Engine.init(nodes, b.dataset.r, td, now());
+    if (b.dataset.r === "none") { S.placed = true; save(); return today(); }
+    S.placement = Engine.placement.create(nodes, b.dataset.r); save(); placement();
+  }));
+}
+
+function placement() {
+  const p = S.placement, id = Engine.placement.next(nodes, p);
+  if (!id) return placementDone();
+  const node = S.nodes[id], ex = new Set(), pick = Engine.draw(bank, id, node, [0], 2, ex);
+  if (!pick.length) { Engine.placement.record(nodes, p, id, 0, 0); save(); return placement(); }
+  let i = 0, c = 0;
+  const step = () => {
+    if (i >= pick.length) { Engine.placement.record(nodes, p, id, c, pick.length); pick.forEach((q) => Engine.answer(node, q.key, true, now())); save(); return placement(); }
+    const tested = Object.keys(p.tested).length;
+    showQuestion(pick[i].item, { head: headFor("Placement test · no hints, no explanations until the end", tested * 2 + i, p.maxNodes * 2, null) + '<div class="sub mt-1">It adapts to your answers, so it may end sooner.</div>',
+      feedback: false, dontKnow: true, onResult: (ok) => { if (ok) c++; i++; step(); } });
+  };
+  step();
+}
+function placementDone() {
+  const res = Engine.applyPlacement(S, nodes, S.placement, now()); save();
+  const list = (ids) => ids.map((id) => `<li>${esc(nameOf(id))}</li>`).join("") || "<li class='sub'>none</li>";
+  app.innerHTML = `<h1 class="text-xl font-bold mt-8">Your starting point</h1>
+    <p class="mt-2 text-sm">You already know <b>${res.known.length}</b> of ${nodes.length} concepts. <b>${res.unknown.length}</b> need work.</p>
+    <div class="grid md:grid-cols-2 gap-4 mt-5"><div class="card p-4"><div class="sub mb-2">KNOW ALREADY (we'll check these again in a couple of days)</div><ul class="text-sm space-y-1 prose">${list(res.known)}</ul></div>
+    <div class="card p-4"><div class="sub mb-2">TO LEARN</div><ul class="text-sm space-y-1 prose">${list(res.unknown)}</ul></div></div>
+    ${res.uncertain.length ? `<p class="sub mt-3">${res.uncertain.length} concept(s) weren't tested; they're in the to-learn list, and a mastery check will skip ahead if you know them.</p>` : ""}
+    <button class="btn btn-p mt-6" id="go">Start</button>`;
+  $("go").onclick = today;
+}
+
+// ---------- Today ----------
+function today() {
+  const P = Engine.plan(S, nodes, now()), due = P.today.review;
+  const done = nodes.filter((n) => ["mastered", "known"].includes(S.nodes[n.id].state)).length;
+  const badge = (id) => { const n = S.nodes[id];
+    return n.state === "mastered" ? '<span class="pill g">mastered</span>' : n.state === "known" ? '<span class="pill g">known</span>'
+      : n.state === "learning" ? `<span class="pill w">level ${n.tier}${n.checks.length ? " · " + n.checks.length + "/3 checks" : ""}</span>` : P.locked.includes(id) ? '<span class="pill">locked</span>' : '<span class="pill">new</span>'; };
+  const mine = me && course.owner === me.id && !course.seeded;
+  app.innerHTML = `<a href="./" class="block text-xs text-gray-500 hover:text-white mt-4">← Library</a>
+    <h1 class="text-2xl font-bold mt-1">${esc(course.title)}</h1>
+    <p class="sub mt-1">${esc(course.subject || "")}${course.author ? " · by " + esc(course.author) : ""}</p>
+    <div class="grid grid-cols-3 gap-3 mt-5 text-center">
+      <div class="card p-3"><div class="text-xl font-bold">${P.daysLeft}</div><div class="sub">days to test</div></div>
+      <div class="card p-3"><div class="text-xl font-bold">${pct(P.readiness)}%</div><div class="sub">estimated readiness</div></div>
+      <div class="card p-3"><div class="text-xl font-bold">${done}/${nodes.length}</div><div class="sub">concepts secure</div></div></div>
+    <div class="sub mt-3">${P.remaining.length ? `${P.remaining.length} concept${P.remaining.length > 1 ? "s" : ""} to learn in ${P.teachDays} day${P.teachDays > 1 ? "s" : ""}${P.buffer ? `, then ${P.buffer} review-only` : ""} → about ${P.newPerDay} a day. ${P.onTrack ? '<span style="color:var(--acc)">On pace.</span>' : '<span style="color:var(--warn)">Behind pace. Do a little extra today.</span>'}` : "Everything is secure. Reviews keep it that way until the test."}
+      · Test date <input id="td" type="date" value="${esc(S.testDate || "")}" style="padding:2px 6px;font-size:12px"></div>
+    ${due.length ? `<div class="card p-4 mt-6"><div class="font-bold">Review due</div><div class="sub mt-1">${due.map(nameOf).map(esc).join(", ")}</div><button class="btn btn-p mt-3" id="rv">Start mixed review</button></div>` : ""}
+    ${P.today.new.length ? `<h2 class="text-sm text-gray-500 mt-6 mb-2">NEW TODAY</h2><div class="space-y-2">${P.today.new.map((id) => `<div class="card p-3 row" data-n="${id}"><div class="flex justify-between gap-3 text-sm"><span>${esc(nameOf(id))}</span>${badge(id)}</div><div class="sub mt-1">${esc((nodes.find((n) => n.id === id) || {}).observable || "")}</div></div>`).join("")}</div>` : ""}
+    <h2 class="text-sm text-gray-500 mt-6 mb-2">ALL CONCEPTS</h2>
+    <div class="space-y-2">${nodes.map((n, i) => `<div class="card p-3 row ${P.locked.includes(n.id) ? "locked" : ""}" data-n="${n.id}"><div class="flex justify-between gap-3 text-sm"><span>${i + 1}. ${esc(n.name)}</span>${badge(n.id)}</div>${P.locked.includes(n.id) ? `<div class="sub mt-1">Needs: ${(n.prereqs || []).filter((p) => !["mastered", "known"].includes(S.nodes[p].state)).map(nameOf).map(esc).join(", ")}</div>` : ""}</div>`).join("")}</div>
+    ${mine ? `<div class="mt-8 flex gap-2"><button class="btn" id="pub">${course.published ? "Unshare from library" : "Share in library"}</button><button class="btn" id="del">Delete course</button></div>` : ""}
+    <div class="mt-6"><button class="btn" id="redo">Retake the placement test</button></div>`;
+  app.querySelectorAll("[data-n]").forEach((el) => (el.onclick = () => nodeScreen(el.dataset.n)));
+  $("td").onchange = (e) => { S.testDate = e.target.value; save(); today(); };
+  if ($("rv")) $("rv").onclick = review;
+  $("redo").onclick = () => { if (confirm("Reset all progress in this course and start over?")) { S = null; try { localStorage.removeItem(lk()); } catch {} if (me) sb.from("course_progress").delete().eq("course_id", course.id).then(() => {}); intro(); } };
+  if (mine) {
+    $("pub").onclick = async () => { await sb.from("courses").update({ published: !course.published }).eq("id", course.id); course.published = !course.published; today(); };
+    $("del").onclick = async () => { if (confirm("Delete this course for good? You will be able to build another.")) { await sb.from("courses").delete().eq("id", course.id); location.hash = ""; } };
+  }
+}
+
+// ---------- a concept ----------
+function nodeScreen(id) {
+  const node = S.nodes[id], n = nodes.find((x) => x.id === id), L = lessons[id], P = Engine.plan(S, nodes, now());
+  const locked = P.locked.includes(id);
+  const hasBank = ["1", "2", "3"].some((t) => ((bank[id] || {})[t] || []).length);
+  app.innerHTML = `<a href="javascript:void 0" id="back" class="block text-xs text-gray-500 mt-4">← ${esc(course.title)}</a>
+    <h1 class="text-xl font-bold mt-2">${esc(n.name)}</h1><p class="sub mt-1">${esc(n.observable || "")}</p>
+    ${locked ? `<p class="mt-3 text-sm" style="color:var(--warn)">This builds on ${(n.prereqs || []).filter((p) => !["mastered", "known"].includes(S.nodes[p].state)).map(nameOf).map(esc).join(", ")}. You can start anyway, but practice will feel harder.</p>` : ""}
+    <div class="sub mt-3">Level ${node.tier} of 3${node.recent.length ? " · recent " + pct(node.recent.reduce((a, b) => a + b, 0) / node.recent.length) + "%" : ""}${node.checks.length ? " · counted checks: " + node.checks.map((c) => c.c + "/" + c.n).join(", ") : ""}${node.due ? " · next review " + fmtDay(node.due) : ""}</div>
+    <div class="mt-5 space-y-2">
+      ${L ? `<button class="opt" id="b-lesson"><b>Lesson</b> ${node.lessonDone ? '<span class="pill g">done</span>' : '<span class="pill w">start here</span>'}<div class="sub mt-1">A problem, then small steps, then worked examples with the help fading.</div></button>` : ""}
+      ${hasBank ? `<button class="opt" id="b-practice"><b>Practice</b><div class="sub mt-1">Questions that adjust to you, aiming for about 85% right.</div></button>
+      <button class="opt" id="b-check"><b>Mastery check</b> ${node.state === "mastered" ? '<span class="pill g">passed</span>' : ""}<div class="sub mt-1">6 questions, new ones first, no hints. Pass three checks at least 2 hours apart, 90% overall, to master this. Already know it? Start here.</div></button>` : '<p class="sub">No questions for this concept.</p>'}
+    </div>`;
+  $("back").onclick = today;
+  if ($("b-lesson")) $("b-lesson").onclick = () => lessonFlow(id);
+  if ($("b-practice")) $("b-practice").onclick = () => practice(id);
+  if ($("b-check")) $("b-check").onclick = () => check(id);
+}
+
+// ---------- lesson: retrieval first, then small steps; each step's check comes AFTER the next step ----------
+function lessonFlow(id) {
+  const L = lessons[id], n = nodes.find((x) => x.id === id), node = S.nodes[id], seq = [];
+  (L.review || []).forEach((x) => seq.push({ t: "q", label: "Recall first", x }));
+  if (L.motivating_problem) seq.push({ t: "text", label: "A problem to think about", body: L.motivating_problem });
+  const steps = L.steps || [];
+  steps.forEach((s, i) => {
+    seq.push({ t: "text", label: "Learn", body: s.text });
+    if (i > 0 && steps[i - 1].check) seq.push({ t: "q", label: "Check the last step", x: steps[i - 1].check });
+  });
+  if (steps.length && steps[steps.length - 1].check) seq.push({ t: "q", label: "Check the last step", x: steps[steps.length - 1].check });
+  (L.worked_examples || []).forEach((w, i) => seq.push({ t: "ex", label: "Worked example " + (i + 1), w }));
+  let i = 0;
+  const head = () => headFor(n.name + " · " + seq[i].label, i, seq.length, n.name);
+  const view = () => {
+    if (i >= seq.length) { node.lessonDone = true; if (node.state === "new") node.state = "learning"; save(); return practice(id); }
+    const s = seq[i];
+    if (s.t === "q") return showQuestion(s.x, { head: head(), feedback: true, onBack: () => nodeScreen(id), onResult: () => { i++; view(); } });
+    if (s.t === "text") app.innerHTML = head() + `<div class="prose mt-6">${(s.body || "").split(/\n+/).map((p) => `<p>${r(p)}</p>`).join("")}</div><div class="mt-6 flex gap-2"><button class="btn btn-p" id="nx">Next</button><button class="btn" id="skip">I know this, test me</button></div>`;
+    else { const w = s.w; app.innerHTML = head() + `<div class="prose mt-6"><p><b>${r(w.problem)}</b></p>${(w.worked || []).map((p) => `<p>${r(p)}</p>`).join("")}
+        ${w.your_turn ? `<p class="mt-4 text-gray-400">Your turn: ${r(w.your_turn)}</p><button class="btn" id="rv">Show answer</button><p id="an" hidden>${r(w.answer || "")}</p>` : ""}</div><div class="mt-6 flex gap-2"><button class="btn btn-p" id="nx">Next</button><button class="btn" id="skip">I know this, test me</button></div>`;
+      if ($("rv")) $("rv").onclick = () => { $("an").hidden = false; $("rv").hidden = true; }; }
+    $("back").onclick = () => nodeScreen(id);
+    $("nx").onclick = () => { i++; view(); };
+    $("skip").onclick = () => check(id); // expertise reversal: don't hold back someone who already knows it
+  };
+  view();
+}
+
+// ---------- adaptive practice ----------
+function practice(id, count) {
+  count = count || 10;
+  const node = S.nodes[id], n = nodes.find((x) => x.id === id), ex = new Set(), log = [];
+  let i = 0, right = 0, note = "";
+  const step = () => {
+    const it = i < count ? Engine.practiceItem(bank, id, node, ex) : null;
+    if (!it) return summary();
+    showQuestion(it.item, { head: headFor(n.name + " · Practice · level " + node.tier, i, count, n.name) + (note ? `<div class="sub mt-1">${esc(note)}</div>` : ""), feedback: true, dontKnow: true, onBack: () => { save(); nodeScreen(id); },
+      onResult: (ok) => {
+        Engine.answer(node, it.key, ok, now()); const ev = Engine.adjust(node, ok);
+        note = ev.event === "up" ? "Moving up a level." : ev.event === "down" ? "Dropping back a level to rebuild." : "";
+        if (node.state === "new") node.state = "learning";
+        log.push(ok); right += ok ? 1 : 0; i++; save(); step();
+      } });
+  };
+  const summary = () => {
+    const a = log.length ? right / log.length : 0, stuck = node.tier === 1 && a < 0.7 && L_(id);
+    app.innerHTML = `<h2 class="text-xl font-bold mt-8">${right} of ${log.length} right</h2>
+      <p class="mt-2 text-sm text-gray-400">${stuck ? "You're missing questions even at the easiest level. That usually means a gap in the lesson or an earlier concept. Go back to the lesson, then try again." : a >= 0.8 && node.tier >= 2 ? "You're ready to try the mastery check." : "Keep going. Misses at this level are where the learning is."}</p>
+      <div class="mt-5 flex gap-2 flex-wrap"><button class="btn ${a >= 0.8 && node.tier >= 2 ? "" : "btn-p"}" id="more">More practice</button>${stuck ? '<button class="btn btn-p" id="les">Back to the lesson</button>' : ""}<button class="btn ${a >= 0.8 && node.tier >= 2 ? "btn-p" : ""}" id="chk">Mastery check</button><button class="btn" id="hm">Done for now</button></div>`;
+    $("more").onclick = () => practice(id); $("chk").onclick = () => check(id); $("hm").onclick = today;
+    if ($("les")) $("les").onclick = () => lessonFlow(id);
+  };
+  step();
+}
+const L_ = (id) => !!lessons[id];
+
+// ---------- mastery check: unseen, harder, no feedback until the end ----------
+function check(id) {
+  const node = S.nodes[id], n = nodes.find((x) => x.id === id), items = Engine.buildCheck(bank, id, node, 6), res = [];
+  let i = 0;
+  const step = () => {
+    if (i >= items.length) return finish();
+    showQuestion(items[i].item, { head: headFor(n.name + " · Mastery check · no hints until the end", i, items.length, n.name), feedback: false, dontKnow: true, onBack: () => nodeScreen(id),
+      onResult: (ok, k) => { Engine.answer(node, items[i].key, ok, now()); res.push({ it: items[i].item, ok, k }); i++; step(); } });
+  };
+  const finish = () => {
+    const c = res.filter((x) => x.ok).length, nf = items.filter((x) => x.fresh).length, out = Engine.recordCheck(S, id, c, res.length, now(), nf); save();
+    const misses = res.filter((x) => !x.ok);
+    const tot = node.checks.slice(-3), fr = tot.reduce((a, b) => a + (b.fresh == null ? b.n : b.fresh), 0), pooled = tot.reduce((a, b) => a + b.c, 0) + "/" + tot.reduce((a, b) => a + b.n, 0);
+    app.innerHTML = `<h2 class="text-xl font-bold mt-8">${c} of ${res.length}</h2>
+      <p class="mt-2 text-sm">${!out.counted ? `This one doesn't count toward mastery: your last check was less than 2 hours ago. Come back later. Remembering after a gap is what shows it stuck, and the wait is part of how it sticks.` : out.mastered ? `<b style="color:var(--acc)">Mastered.</b> ${pooled} correct over your last three checks (${fr} of those ${tot.reduce((a, b) => a + b.n, 0)} questions were new to you). First review ${fmtDay(node.due)}.` : `Not yet. Mastery needs 90% overall across three checks spaced at least 2 hours apart. So far: ${pooled} over ${tot.length} check${tot.length > 1 ? "s" : ""}.${out.checksLeft ? ` ${out.checksLeft} more to go.` : " Practice the misses, then check again later."}`}</p>
+      ${misses.length ? `<div class="mt-5 sub">WHAT TO FIX</div>${misses.map((m) => `<div class="card p-3 mt-2 prose"><p><b>${r(m.it.q)}</b></p><p class="text-sm" style="color:var(--acc)">Right answer: ${r(m.it.o[m.it.a])}</p><p class="text-sm text-gray-400">${r(m.it.e || "")}</p></div>`).join("")}` : ""}
+      <div class="mt-5 flex gap-2 flex-wrap"><button class="btn btn-p" id="again">${out.mastered ? "Back to today" : "Practice more"}</button><button class="btn" id="hm">${out.mastered ? "Check again anyway" : "Back to today"}</button></div>`;
+    $("again").onclick = () => (out.mastered ? today() : practice(id)); $("hm").onclick = () => (out.mastered ? check(id) : today());
+  };
+  step();
+}
+
+// ---------- mixed review of everything that's due ----------
+function review() {
+  const items = Engine.buildReview(S, bank, now(), 18), tally = {};
+  let i = 0;
+  const step = () => {
+    if (i >= items.length) return finish();
+    showQuestion(items[i].item, { head: headFor("Mixed review", i, items.length, course.title), feedback: true, dontKnow: true, onBack: today,
+      onResult: (ok) => { const it = items[i], t = (tally[it.nodeId] = tally[it.nodeId] || { c: 0, n: 0 }); t.n++; t.c += ok ? 1 : 0; Engine.answer(S.nodes[it.nodeId], it.key, ok, now()); i++; step(); } });
+  };
+  const finish = () => {
+    const out = Object.keys(tally).map((id) => ({ id, ok: Engine.recordReview(S, id, tally[id].c, tally[id].n, now()), t: tally[id] })); save();
+    app.innerHTML = `<h2 class="text-xl font-bold mt-8">Review done</h2><div class="mt-4 space-y-2">${out.map((o) => `<div class="card p-3 flex justify-between gap-3 text-sm"><span>${esc(nameOf(o.id))}</span><span class="pill ${o.ok ? "g" : "w"}">${o.t.c}/${o.t.n} · ${o.ok ? "next " + fmtDay(S.nodes[o.id].due) : "back to learning, again tomorrow"}</span></div>`).join("")}</div>
+      <button class="btn btn-p mt-6" id="hm">Back to today</button>`;
+    $("hm").onclick = today;
+  };
+  if (!items.length) { app.innerHTML = '<p class="mt-8">Nothing is due.</p><button class="btn mt-4" id="hm">Back</button>'; $("hm").onclick = today; return; }
+  step();
+}
+
+// ---------- routing ----------
+async function route() {
+  const id = location.hash.slice(1);
+  try { id ? await openCourse(id) : await home(); }
+  catch (e) { app.innerHTML = `<p class="mt-6 text-red-400">${esc(e.message)}</p>`; }
+}
+(async () => { try { me = await ensureUser(); } catch (e) { me = null; } await route(); })();
+window.addEventListener("hashchange", route);
+</script>
+</body>
+</html>

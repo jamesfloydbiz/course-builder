@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Course Builder</title>
+<meta name="description" content="Upload standards, a study guide or a syllabus, set your test date, and get a mastery-gated study course built on learning science.">
+<link rel="canonical" href="https://jamesfloydbiz.github.io/course-builder/build/">
+<meta name="robots" content="index,follow">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{--bg:#0a0a0a;--fg:#eaeaea;--dim:#888;--card:#151515;--border:#252525;--acc:#4ade80;--bad:#f87171}
+  html,body{background:var(--bg);color:var(--fg);font-family:ui-monospace,Menlo,Consolas,monospace}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:8px}
+  .btn{border:1px solid var(--border);background:#111;color:var(--fg);border-radius:6px;padding:10px 16px;cursor:pointer;font:inherit;font-size:14px}
+  .btn:hover{background:#1c1c1c}.btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn-p{background:var(--fg);color:#0a0a0a;border-color:var(--fg)}.btn-p:hover{background:#fff}
+  input,textarea,select{background:#111;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font:inherit;font-size:14px;width:100%}
+  label{display:block;font-size:12px;color:var(--dim);margin:14px 0 4px}
+  .bar{height:6px;background:#1a1a1a;border-radius:99px;overflow:hidden}.bar>div{height:100%;background:var(--acc);transition:width .3s}
+  .err{color:var(--bad);font-size:13px;margin-top:10px}
+  .step{color:var(--dim)}.step.on{color:var(--fg)}.step.done{color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="max-w-2xl mx-auto px-4 py-8">
+  <a href="https://jamesfloyds.world/projects/tech-builds/" class="text-xs text-gray-500 hover:text-white">← Tech Builds</a>
+  <h1 class="text-2xl font-bold mt-1">Course Builder</h1>
+  <p class="text-sm text-gray-400 mt-2">Upload your standards, study guide or syllabus and set your test date. You get a course built backward from what the test needs: lessons in small steps and a large bank of practice questions. When you start studying, a short placement test finds what you already know, and the plan fits the days you have left.</p>
+  <p class="text-xs text-gray-500 mt-2">Free. Every course you build is saved to your account and stays in the <a class="underline" href="../">library</a>, private until you choose to share it. Building takes about 10 to 15 minutes, and <b style="color:#facc15">you need to keep this tab open the whole time</b>.</p>
+
+  <noscript><p class="mt-6">This tool needs JavaScript.</p></noscript>
+
+  <!-- 1. onboarding -->
+  <section id="s-form" class="card p-5 mt-6">
+    <label for="f-file">Upload (PDF, .txt or .md) or paste below</label>
+    <input id="f-file" type="file" accept=".pdf,.txt,.md,text/plain,application/pdf">
+    <textarea id="f-text" rows="7" placeholder="Paste standards, a syllabus or a study guide here..." class="mt-2"></textarea>
+    <div id="f-info" class="text-xs text-gray-500 mt-1"></div>
+    <label for="f-title">Course name</label>
+    <input id="f-title" placeholder="e.g. STAT 1201 midterm" maxlength="120">
+    <label for="f-date">Test date</label><input id="f-date" type="date">
+    <label for="f-author">Your name in the library (optional)</label>
+    <input id="f-author" maxlength="60">
+    <button id="f-go" class="btn btn-p mt-5 w-full">Build my course</button>
+    <div class="text-xs mt-2" style="color:#facc15">Don't close or refresh this tab while it builds. You'll get a chance to review the plan before the long part starts.</div>
+    <div id="f-err" class="err"></div>
+  </section>
+
+  <!-- 2. clarify -->
+  <section id="s-clarify" class="card p-5 mt-6" hidden>
+    <h2 class="font-bold">A few questions</h2>
+    <p class="text-xs text-gray-500">Only things that change what gets built.</p>
+    <div id="q-list"></div>
+    <button id="q-go" class="btn btn-p mt-5 w-full">Continue</button>
+    <div id="q-err" class="err"></div>
+  </section>
+
+  <!-- 2b. existing course for identical material -->
+  <section id="s-existing" class="card p-5 mt-6" hidden>
+    <h2 class="font-bold">This material already has a course</h2>
+    <p class="text-sm text-gray-400 mt-2" id="x-title"></p>
+    <p class="text-xs text-gray-500 mt-1">Reusing it saves the 10 to 15 minute wait, and nothing new is spent.</p>
+    <a id="x-open" class="btn btn-p mt-4 inline-block" href="../">Open it</a>
+    <button id="x-new" class="btn mt-4 ml-2">Build a new one anyway</button>
+  </section>
+
+  <!-- 2c. review the plan -->
+  <section id="s-review" class="card p-5 mt-6" hidden>
+    <h2 class="font-bold">Does this plan look right?</h2>
+    <p class="text-xs text-gray-500 mt-1">This is what the course will teach, in order. Fixing it now costs one quick step. Fixing it later means starting over.</p>
+    <ol id="v-list" class="mt-4 space-y-3 text-sm"></ol>
+    <p id="v-est" class="text-xs text-gray-500 mt-4"></p>
+    <button id="v-ok" class="btn btn-p mt-4 w-full">Looks good, build it</button>
+    <div class="mt-5 border-t pt-4" style="border-color:#252525">
+      <div class="text-sm">Something off? Say what to change.</div>
+      <div class="flex gap-2 flex-wrap mt-2">
+        <button class="btn text-xs v-chip" data-t="Use fewer, broader concepts.">Fewer concepts</button>
+        <button class="btn text-xs v-chip" data-t="Split the big concepts into smaller ones.">More detail</button>
+        <button class="btn text-xs v-chip" data-t="Add a concept for: ">Something's missing</button>
+        <button class="btn text-xs v-chip" data-t="Remove: ">Something doesn't belong</button>
+      </div>
+      <textarea id="v-fb" rows="3" maxlength="600" class="mt-2" placeholder="e.g. Fewer concepts, and skip the part about..."></textarea>
+      <button id="v-redo" class="btn mt-2 w-full">Revise the plan</button>
+      <div class="text-xs text-gray-500 mt-1" id="v-left"></div>
+      <div id="v-err" class="err"></div>
+    </div>
+  </section>
+
+  <!-- 3. progress -->
+  <section id="s-run" class="card p-5 mt-6" hidden>
+    <ol class="space-y-1 text-sm" id="r-steps">
+      <li class="step" data-s="standards">1. Reading your material into measurable standards</li>
+      <li class="step" data-s="graph">2. Mapping what depends on what</li>
+      <li class="step" data-s="lessons">3. Writing lessons and a large question bank, checking every answer key</li>
+      <li class="step" data-s="finish">4. Finishing up</li>
+    </ol>
+    <div class="bar mt-4"><div id="r-bar" style="width:0%"></div></div>
+    <div id="r-note" class="text-xs text-gray-500 mt-2"></div>
+    <div id="r-err" class="err"></div>
+    <button id="r-retry" class="btn mt-3" hidden>Retry</button>
+    <p class="text-sm mt-4" style="color:#facc15">Keep this tab open until it says your course is ready. Closing or refreshing pauses the build. If that happens, open this page again on the same browser and it will pick up where it stopped.</p>
+  </section>
+
+  <!-- 4. done -->
+  <section id="s-done" class="card p-5 mt-6" hidden>
+    <h2 class="font-bold">Your course is ready.</h2>
+    <a id="d-link" class="btn btn-p mt-4 inline-block" href="../">Open it</a>
+  </section>
+</div>
+<script src="../js/learn.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const { call, sb, ensureUser } = Learn;
+let courseId = localStorage.getItem("cb_course") || null;
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+$("f-date").min = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+$("f-text").addEventListener("input", () => $("f-info").textContent = $("f-text").value.length.toLocaleString() + " characters (max 120,000)");
+
+$("f-file").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  $("f-err").textContent = "";
+  try {
+    let text = "";
+    if (f.name.toLowerCase().endsWith(".pdf")) {
+      const pdf = await pdfjsLib.getDocument({ data: await f.arrayBuffer() }).promise;
+      if (pdf.numPages > 120) throw new Error("PDF is over 120 pages. Upload the relevant part.");
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const pg = await pdf.getPage(p);
+        text += (await pg.getTextContent()).items.map((i) => i.str).join(" ") + "\n\n";
+      }
+      if (text.trim().length < 200) throw new Error("No text found. This may be a scanned PDF. Paste the text instead.");
+    } else text = await f.text();
+    $("f-text").value = text.slice(0, 120000);
+    $("f-text").dispatchEvent(new Event("input"));
+    if (!$("f-title").value) $("f-title").value = f.name.replace(/\.[^.]+$/, "");
+  } catch (err) { $("f-err").textContent = err.message; }
+});
+
+function show(id) { for (const s of ["s-form", "s-clarify", "s-existing", "s-review", "s-run", "s-done"]) $(s).hidden = s !== id; }
+function mark(stage) {
+  const order = ["standards", "graph", "lessons", "finish"];
+  document.querySelectorAll("#r-steps .step").forEach((li) => {
+    const i = order.indexOf(li.dataset.s), c = order.indexOf(stage);
+    li.className = "step " + (i < c ? "done" : i === c ? "on" : "");
+  });
+}
+
+function createBody(force) {
+  return { action: "create", text: $("f-text").value, title: $("f-title").value, test_date: $("f-date").value, author: $("f-author").value, force_new: !!force };
+}
+async function create(force) {
+  $("f-err").textContent = ""; $("f-go").disabled = true;
+  try {
+    const r = await call(createBody(force));
+    if (r.existing) {
+      $("x-title").textContent = r.title; $("x-open").href = "../#" + r.existing; show("s-existing"); $("f-go").disabled = false; return;
+    }
+    courseId = r.id; localStorage.setItem("cb_course", courseId);
+    run();
+  } catch (e) { show("s-form"); $("f-err").textContent = e.message; $("f-go").disabled = false; }
+}
+$("f-go").addEventListener("click", () => create(false));
+$("x-new").addEventListener("click", () => create(true));
+
+async function run() {
+  show("s-run"); $("r-err").textContent = ""; $("r-retry").hidden = true;
+  try {
+    let r = await call({ action: "step", course_id: courseId });
+    mark(r.stage);
+    if (r.stage === "clarify") return clarify(r.questions);
+    if (r.stage === "graph") {
+      mark("graph"); $("r-note").textContent = "Mapping prerequisites...";
+      r = await call({ action: "step", course_id: courseId });
+    }
+    if (r.stage === "review") return review(r);
+    if (r.stage === "lessons") return lessons(r);
+    if (r.stage === "ready") return showDone();
+  } catch (e) { fail(e); }
+}
+function fail(e) { $("r-err").textContent = e.message; $("r-retry").hidden = false; }
+$("r-retry").addEventListener("click", run);
+
+function clarify(qs) {
+  show("s-clarify");
+  $("q-list").innerHTML = qs.map((q) => `<label>${Learn.esc(q.q)}</label><select data-q="${Learn.esc(q.id)}">${
+    q.options.map((o) => `<option>${Learn.esc(o)}</option>`).join("")}</select>`).join("");
+  $("q-go").onclick = async () => {
+    const answers = {}; document.querySelectorAll("#q-list select").forEach((s) => answers[s.dataset.q] = s.value);
+    $("q-go").disabled = true;
+    try { await call({ action: "answer", course_id: courseId, answers }); $("q-go").disabled = false; run(); }
+    catch (e) { $("q-err").textContent = e.message; $("q-go").disabled = false; }
+  };
+}
+
+function review(r) {
+  show("s-review");
+  const nm = (id) => (r.nodes.find((n) => n.id === id) || {}).name;
+  $("v-list").innerHTML = r.nodes.map((n, i) => `<li><div><b>${i + 1}. ${Learn.esc(n.name)}</b></div><div class="text-xs text-gray-400">${Learn.esc(n.observable || "")}</div>${
+    (n.prereqs || []).length ? `<div class="text-xs text-gray-600">builds on: ${n.prereqs.map((p) => Learn.esc(nm(p) || p)).join(", ")}</div>` : ""}</li>`).join("");
+  $("v-est").textContent = `${r.nodes.length} concepts. Each gets a lesson and a bank of about 48 practice questions, all checked. Building them takes roughly ${Math.ceil(r.nodes.length * 0.65)} minutes.`;
+  const left = 3 - (r.regraphs || 0);
+  $("v-left").textContent = left > 0 ? `${left} revision${left > 1 ? "s" : ""} left.` : "No revisions left. Approve this version, or start over from the first screen.";
+  $("v-redo").disabled = left <= 0; $("v-err").textContent = "";
+  document.querySelectorAll(".v-chip").forEach((b) => (b.onclick = () => { $("v-fb").value = b.dataset.t; $("v-fb").focus(); }));
+  $("v-redo").onclick = async () => {
+    const fb = $("v-fb").value.trim(); if (!fb) return ($("v-err").textContent = "Say what to change first.");
+    $("v-redo").disabled = true; $("v-redo").textContent = "Revising... (about 30 seconds)";
+    try { const r2 = await call({ action: "regraph", course_id: courseId, feedback: fb }); $("v-fb").value = ""; $("v-redo").textContent = "Revise the plan"; review(r2); }
+    catch (e) { $("v-err").textContent = e.message; $("v-redo").disabled = false; $("v-redo").textContent = "Revise the plan"; }
+  };
+  $("v-ok").onclick = async () => {
+    $("v-ok").disabled = true;
+    try { await call({ action: "approve", course_id: courseId }); show("s-run"); mark("lessons"); lessons(await call({ action: "step", course_id: courseId })); }
+    catch (e) { $("v-err").textContent = e.message; $("v-ok").disabled = false; }
+  };
+}
+
+const warnLeave = (e) => { e.preventDefault(); e.returnValue = "Your course is still building. Leaving pauses it."; return e.returnValue; };
+
+async function lessons(r) {
+  window.addEventListener("beforeunload", warnLeave);
+  show("s-run"); mark("lessons");
+  const { nodes } = r, lHave = new Set(r.lessons.map((x) => x.id)), lVer = new Set(r.lessons.filter((x) => x.verified).map((x) => x.id));
+  const iHave = new Set(r.items.map((x) => x.id + ":" + x.tier)), iVer = new Set(r.items.filter((x) => x.verified).map((x) => x.id + ":" + x.tier));
+  const chains = [];
+  for (const n of nodes) {
+    const c = [];
+    if (!lHave.has(n.id)) c.push({ action: "lesson", node_id: n.id });
+    if (!lVer.has(n.id)) c.push({ action: "verify_lesson", node_id: n.id });
+    if (c.length) chains.push(c);
+    for (const t of [0, 1, 2, 3]) {
+      const k = n.id + ":" + t, d = [];
+      if (!iHave.has(k)) d.push({ action: "bank", node_id: n.id, tier: t });
+      if (!iVer.has(k)) d.push({ action: "verify_bank", node_id: n.id, tier: t });
+      if (d.length) chains.push(d);
+    }
+  }
+  const total = chains.reduce((a, c) => a + c.length, 0) || 1; let done = 0;
+  const upd = () => { $("r-bar").style.width = Math.round(done / total * 100) + "%"; $("r-note").textContent = `${done} of ${total} steps · ${nodes.length} concepts`; };
+  upd();
+  let failed = null, i = 0;
+  const worker = async () => {
+    while (i < chains.length && !failed) {
+      const chain = chains[i++];
+      for (const st of chain) {
+        if (failed) return;
+        try { await call({ ...st, course_id: courseId }); done++; upd(); } catch (e) { failed = e; return; }
+      }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  if (failed) { window.removeEventListener("beforeunload", warnLeave); return fail(failed); }
+  mark("finish");
+  try { await call({ action: "finish", course_id: courseId }); showDone(); } catch (e) { fail(e); }
+}
+function showDone() {
+  window.removeEventListener("beforeunload", warnLeave);
+  show("s-done"); $("d-link").href = "../#" + courseId; localStorage.removeItem("cb_course");
+}
+
+(async () => {
+  try { await ensureUser(); } catch (e) { $("f-err").textContent = e.message; return; }
+  if (courseId) {
+    const { data } = await sb.from("courses").select("status,stage").eq("id", courseId).maybeSingle();
+    if (data && data.status !== "ready") run();
+    else if (data) showDone();
+    else localStorage.removeItem("cb_course");
+  }
+})();
+</script>
+</body>
+</html>
