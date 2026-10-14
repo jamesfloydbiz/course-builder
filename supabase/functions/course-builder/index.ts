@@ -34,6 +34,30 @@ const SCIENCE = `LEARNING-SCIENCE RULES:
 - Feedback on every question says what the right process was and where a learner's likely error comes from. About the task, never the person.
 - Wrong options must be plausible errors a real learner would make (a sign slip, a misremembered rule, a common misconception), never silly. All four options are the same length and detail; the right one is never the longest.`;
 
+// Models sometimes return almost-valid JSON: unescaped double quotes inside a string (dialogue in a
+// word problem), stray backslashes (\% \$), raw newlines in strings, trailing commas. Repair those
+// in a single string-aware pass before giving up.
+function repairJson(t: string): string {
+  let out = "", inStr = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (!inStr) { out += c; if (c === '"') inStr = true; continue; }
+    if (c === "\\") {
+      const n = t[i + 1];
+      if (n !== undefined && '"\\/bfnrtu'.includes(n)) { out += c + n; i++; } else out += "\\\\";
+      continue;
+    }
+    if (c === '"') {
+      const next = t.slice(i + 1).match(/^\s*(.)/);
+      if (!next || ",:}]".includes(next[1])) { out += c; inStr = false; } else out += '\\"'; // inner quote
+      continue;
+    }
+    if (c === "\n") out += "\\n"; else if (c === "\r") out += ""; else if (c === "\t") out += "\\t";
+    else if (c < " ") out += " "; else out += c;
+  }
+  return out.replace(/,(\s*[}\]])/g, "$1");
+}
+
 async function claude(courseId: string, system: string, user: string, maxTokens = 6000, think = false, label?: { action: string; node_id?: string; tier?: number }): Promise<any> {
   const key = Deno.env.get("ANTHROPIC_API_KEY");
   if (!key) throw new Error("ANTHROPIC_API_KEY is not configured");
@@ -49,7 +73,7 @@ async function claude(courseId: string, system: string, user: string, maxTokens 
         model: MODEL,
         max_tokens: maxTokens,
         ...(think ? {} : { thinking: { type: "between_tools" } }),
-        system: system + "\n\nReturn ONLY valid JSON. No prose, no code fences.",
+        system: system + "\n\nReturn ONLY valid JSON. No prose, no code fences. Inside any string value, write quoted speech with single quotes and never use a bare double quote; escape any double quote you must use as \\\".",
         messages: [{ role: "user", content: user }],
       }),
     });
@@ -62,8 +86,14 @@ async function claude(courseId: string, system: string, user: string, maxTokens 
     if (label) await admin.from("build_log").insert({ course_id: courseId, action: label.action, node_id: label.node_id ?? null, tier: label.tier ?? null, tokens_in: d.usage?.input_tokens ?? 0, tokens_out: d.usage?.output_tokens ?? 0, ms: Date.now() - t0 });
     const raw = (d.content ?? []).filter((x: any) => x.type === "text").map((x: any) => x.text).join("");
     const m = raw.match(/\{[\s\S]*\}/);
-    try { return JSON.parse(m ? m[0] : raw); } catch {
-      last = `stop=${d.stop_reason} len=${raw.length} head=${raw.slice(0, 120)} tail=${raw.slice(-120)}`;
+    const body = m ? m[0] : raw;
+    try { return JSON.parse(body); } catch {
+      const fixed = repairJson(body);
+      try { return JSON.parse(fixed); } catch (e2) {
+        const msg = String((e2 as Error).message);
+        const pos = Number(msg.match(/position (\d+)/)?.[1] ?? -1);
+        last = `stop=${d.stop_reason} len=${raw.length} ${msg.slice(0, 80)} near=${pos >= 0 ? fixed.slice(Math.max(0, pos - 60), pos + 60) : fixed.slice(-120)}`;
+      }
     }
   }
   throw new Error("Model returned invalid JSON twice: " + last);
