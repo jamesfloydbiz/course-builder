@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>STAT 1201 Trainer</title>
+<meta name="description" content="Spaced-repetition trainer for the STAT UN1201 midterm: probability, conditional probability, Bayes, counting, discrete and continuous random variables. Worked walkthroughs of the sample paper, adaptive practice, timed exam. All state in localStorage.">
+<link rel="canonical" href="https://jamesfloydbiz.github.io/course-builder/trainers/stat1201/">
+<meta name="robots" content="index,follow">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body{background:#0a0a0a;color:#e5e5e5;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif}
+  .tab{padding:.5rem .9rem;font-size:.82rem;border-bottom:2px solid transparent;color:#888;white-space:nowrap}
+  .tab.on{color:#fff;border-bottom-color:#fff}
+  .tab:hover{color:#ccc}
+  .card{background:#141414;border:1px solid #262626;border-radius:.6rem}
+  .opt{display:block;width:100%;text-align:left;padding:.7rem .9rem;border:1px solid #2c2c2c;border-radius:.5rem;background:#161616;margin-bottom:.5rem;transition:border-color .12s,background .12s}
+  .opt:hover:not(:disabled){border-color:#555;background:#1c1c1c}
+  .opt.correct{border-color:#15803d;background:#0d2616}
+  .opt.wrong{border-color:#b91c1c;background:#2a1010}
+  .opt:disabled{cursor:default}
+  .btn{padding:.5rem 1rem;border-radius:.45rem;background:#fff;color:#000;font-weight:600;font-size:.85rem}
+  .btn:hover{background:#ddd}
+  .btn.ghost{background:transparent;color:#ddd;border:1px solid #3a3a3a}
+  .btn.ghost:hover{background:#1c1c1c}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .bar{height:5px;background:#222;border-radius:3px;overflow:hidden}
+  .bar>i{display:block;height:100%;background:#4ade80}
+  details>summary{cursor:pointer;list-style:none}
+  details>summary::-webkit-details-marker{display:none}
+  details>summary::before{content:'▸ ';color:#777}
+  details[open]>summary::before{content:'▾ '}
+  .kbd{font-family:ui-monospace,monospace;font-size:.7rem;background:#222;border:1px solid #333;border-radius:3px;padding:1px 5px;color:#aaa}
+  table.tw{border-collapse:collapse;margin:.6rem 0}
+  table.tw td,table.tw th{border:1px solid #333;padding:.35rem .8rem;text-align:center;font-family:ui-monospace,monospace;font-size:.82rem}
+  table.tw th{background:#1a1a1a;color:#aaa}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-3xl mx-auto px-4 py-8">
+
+  <header class="mb-5">
+    <div class="flex items-baseline justify-between flex-wrap gap-2">
+      <h1 class="text-xl font-semibold">STAT 1201 Trainer</h1>
+      <a href="../../#8d9351bd-ec7d-4ccc-b4e4-38ab4141afac" class="text-xs text-neutral-500 hover:text-neutral-300">← Back to the course</a>
+    </div>
+    <p class="text-xs text-neutral-500 mt-1">by Emmanuella · Midterm prep: probability, conditional probability, Bayes, counting, random variables.</p>
+  </header>
+
+  <noscript>
+    <p style="border-left:2px solid #333;padding:.25rem 0 .25rem 1rem;margin:1rem 0;color:#bbb;line-height:1.6">
+      This trainer needs JavaScript — it keeps your progress in your browser and picks the next question from it.
+      Nothing is sent anywhere.
+    </p>
+  </noscript>
+
+  <nav class="flex flex-wrap gap-1 border-b border-neutral-800 mb-6" id="tabs">
+    <button class="tab on" data-tab="intro">Start here</button>
+    <button class="tab" data-tab="paper">The paper</button>
+    <button class="tab" data-tab="practice">Practice</button>
+    <button class="tab" data-tab="exam">Exam</button>
+    <button class="tab" data-tab="cards">Flashcards</button>
+    <button class="tab" data-tab="stats">Stats</button>
+  </nav>
+
+  <main id="view"></main>
+
+  <footer class="mt-14 pt-5 border-t border-neutral-900 text-[11px] text-neutral-600 leading-relaxed">
+    Built from the Fall 2026 STAT UN1201-003 <em>sample</em> midterm. Practice material, not the graded paper.
+    Everything runs in your browser; your progress never leaves it.
+    <button id="wipe" class="underline hover:text-neutral-400 ml-1">Reset all progress</button>
+  </footer>
+</div>
+<script>
+/* ===========================================================================
+   STAT 1201 Trainer
+
+   Built on the same engine ideas as the CCAT trainer: Leitner boxes for
+   practice, SM-2-lite for cards, a difficulty band so questions land where
+   you can just about get them, and mastery measured per subtype over a
+   rolling window rather than a lifetime average.
+
+   Three rules from the learning science drive the interface, and they are
+   worth stating because they are what make it different from a quiz:
+
+   1. You answer before you see anything. Retrieval is the studying; reading
+      an explanation you have not first tried to produce teaches much less.
+   2. The explanation names the transferable routine, not just why this
+      answer is right. "Why 0.43" does not help on the next one; "whenever
+      you read at least one, take the complement" does.
+   3. Difficulty tracks you, aiming at roughly 80-85% correct. Easier than
+      that wastes the session; harder and you stop learning and start
+      guessing.
+   =========================================================================== */
+
+const LS = {
+  stats:   "s1201.stats.v1",     // {id:{seen,correct,box,lastSession}}
+  subs:    "s1201.subs.v1",      // {sub:{att,ok,recent:[1,0..]}}
+  recent:  "s1201.recent.v1",    // [1,0,..] last N answers, any mode
+  pace:    "s1201.pace.v1",      // [seconds,..]
+  hist:    "s1201.hist.v1",      // [{ts,score,total,dur,catAcc}]
+  cards:   "s1201.cards.v1",     // {cardId:{ease,iv,due}}
+  paper:   "s1201.paper.v1",     // {problemId: furthest step revealed}
+  session: "s1201.session.v1",
+};
+const get = (k,d)=>{ try{const v=localStorage.getItem(k); return v?JSON.parse(v):d;}catch(e){return d;} };
+const put = (k,v)=>localStorage.setItem(k,JSON.stringify(v));
+
+let Q=[], STATS=get(LS.stats,{}), SUBS=get(LS.subs,{}), HIST=get(LS.hist,[]), CARDS=get(LS.cards,{});
+let RECENT=get(LS.recent,[]), PAPER_OPEN=get(LS.paper,{});
+const IDLE_CAP=240;                                   // past this you walked away, not thought
+let PACE=get(LS.pace,[]).filter(v=>typeof v==='number'&&v>0&&v<=IDLE_CAP).slice(-40);
+let SESSION=get(LS.session,{n:0});
+
+const FORM_WIN=30;        // "current form" = last 30 answers
+const MASTERY_WIN=8;      // rolling window per subtype
+const MASTERY_ACC=0.85;   // accuracy over that window to count as mastered
+const MASTERY_MIN=6;      // and at least this many attempts
+const TARGET_LO=0.80, TARGET_HI=0.85;   // the band difficulty is steered toward
+
+let tab='intro', QMAP={}, ALLSUBS=[], CATS=[];
+
+/* ---------------------------------------------------------------- methods --
+   One card per subtype: the routine you carry into the exam room. Shown with
+   every answer in that subtype, and always on a miss. Terms are defined where
+   they first appear — a hint that uses a word you have not met is not a hint. */
+const METHODS = {
+  "exclusive-vs-independent":
+    "Two different questions that sound alike.\n" +
+    "Mutually exclusive asks: can both happen at once? If not, P(A∩B) = 0.\n" +
+    "Independent asks: does one tell you anything about the other? If not, P(A∩B) = P(A)·P(B).\n" +
+    "In a two-way table with N equally likely outcomes, exclusive means the shared cell is 0, and independent means that cell equals (row total × column total) / N.\n" +
+    "If both events have probability above 0 they cannot be both — the first forces the overlap to 0, the second forces it above 0.",
+  "set-ops":
+    "Draw the two circles before you compute anything.\n" +
+    "P(A∪B) = P(A) + P(B) − P(A∩B). The overlap is in both of the first two terms, so take it out once.\n" +
+    "P(A∩Bᶜ) = P(A) − P(A∩B). A splits into the part inside B and the part outside, and those do not overlap.\n" +
+    "'Exactly one of them' = P(A) + P(B) − 2P(A∩B). Twice, because the overlap belongs to neither piece.",
+  "complement-rule":
+    "Conditioning on B makes B the new sample space. Every rule you know still holds inside it.\n" +
+    "So P(Aᶜ|B) = 1 − P(A|B), for the same reason P(Aᶜ) = 1 − P(A).\n" +
+    "To prove it: start from the definition, split B into the part in A and the part not in A, note the two pieces are disjoint so the probabilities add, then divide through by P(B).\n" +
+    "P(B) > 0 is needed only to divide.",
+  "symmetric-difference":
+    "'Exactly one of A and B' = (A∩Bᶜ) ∪ (B∩Aᶜ).\n" +
+    "Those two pieces cannot both happen, so add them: P(A) + P(B) − 2P(A∩B).\n" +
+    "You will usually have to dig P(A∩B) out of a conditional first: P(A∩B) = P(A|B)·P(B).\n" +
+    "The 2 is where this is lost. Subtracting the overlap once gives P(A∪B), which includes the middle.",
+  "conditional-basics":
+    "P(A|B) = P(A∩B)/P(B), which rearranges to P(A∩B) = P(A|B)·P(B).\n" +
+    "Read the bar as 'out of'. P(A|B) is the share of B that also has A.\n" +
+    "P(A|B) and P(B|A) are different numbers. Mixing them up is the single most common error on this material.",
+  "bayes":
+    "Use it when you are handed P(evidence | cause) and asked for P(cause | evidence).\n" +
+    "Top: P(evidence and the cause you want).\n" +
+    "Bottom: P(evidence) totalled over every cause.\n" +
+    "Two traps. Watch for a rate given for the negative — '90% do not attend' means the attend rate is 10%. And a rare cause stays rare after a strong test, so sanity-check against the base rate.\n" +
+    "If the algebra blurs, imagine 1000 people and count them.",
+  "total-probability":
+    "Split the population into groups that do not overlap and together cover everything.\n" +
+    "Work out the rate inside each group, weight each by the size of the group, add.\n" +
+    "P(E) = P(E|G₁)P(G₁) + P(E|G₂)P(G₂) + …\n" +
+    "This is the denominator of Bayes. Computing it on its own first makes the Bayes step short.",
+  "same-color":
+    "'All the same colour' = all of the first colour, or all of the second, or all of the third. Those cannot happen together, so add them.\n" +
+    "Each piece is a combination count: C(colour,3) ways over C(total,3) ways.\n" +
+    "Without replacement and order not mattering is exactly what combinations are for. Do not raise to a power — that is the with-replacement answer.",
+  "combinations":
+    "C(n,k) = n! / (k!(n−k)!).\n" +
+    "Dividing by k! removes the orderings: the same k items in a different sequence is the same choice.\n" +
+    "Does order matter? No → combination. Yes → permutation, which is k! times bigger.",
+  "valid-pmf":
+    "A probability mass function assigns a probability to each value a discrete variable can take.\n" +
+    "Two conditions, and only two: every value is at least 0, and they total exactly 1.\n" +
+    "The mean and the variance are not part of the definition — a valid pmf can have an infinite mean.\n" +
+    "For a geometric series, ∑ arˣ from x = 1 is a/(1−r). Starting the index at 0 instead of 1 is the usual slip.",
+  "geometric-tail":
+    "X = trials up to and including the first success.\n" +
+    "'At least k trials' means the first k−1 all failed, and nothing more. So P(X ≥ k) = (1−p)^(k−1).\n" +
+    "Count the failures rather than summing the tail of the series — fewer chances for an off-by-one.",
+  "geometric-expectation":
+    "E[X] = 1/p for trials up to and including the first success.\n" +
+    "If it works one time in six, expect six tries.\n" +
+    "Careful which version is being asked for: counting the successful trial gives 1/p; counting only the failures before it gives (1−p)/p.",
+  "at-least-one":
+    "'At least one' is many events bundled together — one, or two, or three…\n" +
+    "Its opposite is a single clean event: none at all.\n" +
+    "P(at least one) = 1 − P(none) = 1 − (1−p)ⁿ, when trials are independent.\n" +
+    "Whenever you read 'at least one', write down the complement before anything else.",
+  "pdf-constant":
+    "A density has to enclose area 1. Integrate it over its whole range, set that equal to 1, solve for the constant.\n" +
+    "∫₀^b c·xⁿ dx = c·b^(n+1)/(n+1), so c = (n+1)/b^(n+1).\n" +
+    "The height f(x) is not a probability and may exceed 1. Only area is probability.",
+  "uniform":
+    "Uniform means the density is flat, so probability is just the fraction of the range.\n" +
+    "P(a ≤ X ≤ b) = (b−a)/(range).\n" +
+    "Open or closed endpoints make no difference — a single point has probability 0.",
+  "pdf-vs-pmf":
+    "Discrete: P(X = x) is the whole story, and ≤ differs from <.\n" +
+    "Continuous: P(X = x) = 0 for every single x, because a point has no width. So ≤ and < always agree.\n" +
+    "The density f(x) is a height. Probability is the area underneath it.",
+};
+
+/* ------------------------------------------------------------- the paper --
+   The eight problems from the sample midterm, each with a staged solution.
+   Steps reveal one at a time: you try it, then take one step, then the next.
+   That is faded guidance — the support comes off as you can carry more —
+   rather than an answer key you read top to bottom and feel you understood. */
+const PROBLEMS = [
+ {id:'p1', pts:15, title:'Two-way table: exclusive vs independent',
+  body:`A population of size N = 18 has events A, B, C, D summarised in a two-way table. The A∩C cell holds y, the B∩C cell holds 5, the A∩D cell holds 2, the B∩D cell holds z. The grand total is 18.
+<table class="tw"><tr><th></th><th>A</th><th>B</th><th>Total</th></tr>
+<tr><th>C</th><td>y</td><td>5</td><td></td></tr>
+<tr><th>D</th><td>2</td><td>z</td><td></td></tr>
+<tr><th>Total</th><td></td><td></td><td>18</td></tr></table>
+<b>(i)</b> What value of y makes A and C mutually exclusive? <b>(ii)</b> What value makes them independent?`,
+  steps:[
+   "Write down what each phrase means before touching the table. Mutually exclusive: A∩C is empty, so its count is 0. Independent: P(A∩C) = P(A)·P(C).",
+   "Part (i) is finished already. If no outcome is in both A and C, the cell holding A∩C contains 0 outcomes. y = 0. The totals never came into it.",
+   "Part (ii) needs the totals. With y in the A∩C cell: row C totals y + 5, and column A totals y + 2. The grand total is 18.",
+   "Independence means (y/18) = ((y+2)/18)·((y+5)/18). Multiply through by 18: y = (y+2)(y+5)/18, so 18y = y² + 7y + 10.",
+   "That is y² − 11y + 10 = 0, which factors as (y − 1)(y − 10) = 0. So y = 1 or y = 10 — and both genuinely work. Check y = 1: z = 10, row C = 6, column A = 3, and 1/18 = (3/18)(6/18). ✓ Check y = 10: z = 1, row C = 15, column A = 12, and 10/18 = (12/18)(15/18). ✓ The question says 'what value(s)', plural, so give both.",
+   "The lesson to carry: exclusive is a statement about overlap and needs no totals. Independent is a statement about proportions and needs all of them."],
+ },
+ {id:'p2', pts:15, title:'Prove the complement rule for conditional probability',
+  body:`Let A ⊆ Ω and B ⊆ Ω be events with P(B) > 0. Show that P(A<sup>c</sup>|B) = 1 − P(A|B).<br>
+<span class="text-neutral-500">Hint given on the paper: you may use the distributive law, C₁ ∩ (C₂ ∪ C₃) = (C₁ ∩ C₂) ∪ (C₁ ∩ C₃).</span>`,
+  steps:[
+   "Start from the definition and nothing else: P(Aᶜ|B) = P(Aᶜ ∩ B) / P(B). This is where every proof on this topic begins.",
+   "Now you need P(Aᶜ ∩ B) in terms of things you know. Split B. Every outcome in B is either in A or not in A — there is no third case. So B = (A ∩ B) ∪ (Aᶜ ∩ B).",
+   "Those two pieces share no outcomes, so their probabilities add: P(B) = P(A ∩ B) + P(Aᶜ ∩ B). Rearranged, P(Aᶜ ∩ B) = P(B) − P(A ∩ B).",
+   "Substitute back: P(Aᶜ|B) = [P(B) − P(A ∩ B)] / P(B) = P(B)/P(B) − P(A ∩ B)/P(B).",
+   "The first term is 1 and the second is the definition of P(A|B). So P(Aᶜ|B) = 1 − P(A|B). ∎",
+   "Where P(B) > 0 was used: only to divide. And the splitting step is the whole proof — conditioning on B makes B the sample space, so the ordinary complement rule applies inside it."],
+ },
+ {id:'p3', pts:15, title:'Exactly one of A and B',
+  body:`P(A) = 0.30, P(B) = 0.20, P(A<sup>c</sup>|B) = 0.75. Compute P((A ∩ B<sup>c</sup>) ∪ (B ∩ A<sup>c</sup>)).`,
+  steps:[
+   "Read the event first. A∩Bᶜ is 'A but not B'. B∩Aᶜ is 'B but not A'. Together: exactly one of the two happens.",
+   "The two pieces cannot both occur, so add them. P = P(A∩Bᶜ) + P(B∩Aᶜ) = [P(A) − P(A∩B)] + [P(B) − P(A∩B)] = P(A) + P(B) − 2P(A∩B).",
+   "So everything reduces to finding P(A∩B), which you were not given directly. You were given P(Aᶜ|B) = 0.75.",
+   "Use the complement rule from Problem 2: P(A|B) = 1 − 0.75 = 0.25. Then P(A∩B) = P(A|B)·P(B) = 0.25 × 0.20 = 0.05.",
+   "Finish: 0.30 + 0.20 − 2(0.05) = 0.50 − 0.10 = 0.40.",
+   "The trap is the 2. Subtracting the overlap once gives P(A∪B) = 0.45, which counts the middle region — and the middle is exactly what 'exactly one' excludes."],
+ },
+ {id:'p4', pts:15, title:'Three balls, all the same colour',
+  body:`An urn holds 12 blue, 13 red and 10 green balls. Three are drawn at random <b>without replacement</b>. What is the probability all three are the same colour?`,
+  steps:[
+   "'All the same colour' breaks into three cases that cannot overlap: all blue, all red, all green. Add them.",
+   "Order does not matter and there is no replacement, so each case is a combination count. All blue: C(12,3) = 220. All red: C(13,3) = 286. All green: C(10,3) = 120.",
+   "Favourable total: 220 + 286 + 120 = 626.",
+   "All possible draws of three from 35: C(35,3) = 6545.",
+   "626 / 6545 ≈ 0.0956, a little under 10%.",
+   "Two ways this goes wrong: using 35³ in the denominator, which is the with-replacement count; and multiplying the three cases instead of adding them. Separate cases add; independent stages multiply."],
+ },
+ {id:'p5', pts:10, title:'Bayes: did they complete the program?',
+  body:`70% of students who enrol complete the program. Of those who complete it, 60% attend the optional review sessions. Of those who do <b>not</b> complete it, 90% do <b>not</b> attend the review sessions. A randomly selected student attended the review sessions. What is the probability they completed the program?`,
+  steps:[
+   "Name what you want and what you have. Want: P(complete | attended). Have: P(attended | complete). The conditional is pointing the wrong way, so this is Bayes.",
+   "Translate the last sentence carefully. '90% of non-completers do not attend' means 10% of non-completers do attend. That flip is where most of the marks are lost.",
+   "Build the numerator: P(complete and attended) = 0.60 × 0.70 = 0.42.",
+   "Build the denominator — everyone who attended, from both groups: 0.60 × 0.70 + 0.10 × 0.30 = 0.42 + 0.03 = 0.45.",
+   "Divide: 0.42 / 0.45 ≈ 0.9333.",
+   "Sanity check by counting 1000 students: 700 complete and 420 of them attend; 300 do not complete and 30 of them attend. 450 attendees, 420 of whom completed. Same answer, no formula."],
+ },
+ {id:'p6', pts:20, title:'Flipping until the first heads',
+  body:`A fair coin is flipped until the first heads. X is the number of flips required, including the one that lands heads, with P(X = x) = (1/2)<sup>x</sup> for x = 1, 2, 3, …<br>
+<b>(i)</b> Show this is a valid pmf. <b>(ii)</b> P(at least three flips)? <b>(iii)</b> E[X]?`,
+  steps:[
+   "(i) A probability mass function needs exactly two things: every value ≥ 0, and the values total 1. Nothing about the mean.",
+   "(i) Non-negativity is immediate — (1/2)ˣ is positive for every x. For the sum: ∑(1/2)ˣ from x = 1 is a geometric series with first term 1/2 and ratio 1/2, so it equals (1/2)/(1 − 1/2) = 1. Valid. ✓",
+   "(ii) 'At least three flips' means the first two were both tails, and nothing more needs to be said. P = (1/2)² = 1/4.",
+   "(ii) The same answer the long way: ∑(1/2)ˣ from x = 3 = (1/8)/(1 − 1/2) = 1/4. Counting the failures is faster and harder to get wrong.",
+   "(iii) For trials up to and including the first success, E[X] = 1/p. Here p = 1/2, so E[X] = 2.",
+   "(iii) If you are asked to derive it: E[X] = ∑ x(1/2)ˣ, and ∑ x rˣ = r/(1−r)² for |r| < 1, giving (1/2)/(1/4) = 2."],
+ },
+ {id:'p7', pts:10, title:'A sum of seven, at least once in ten rolls',
+  body:`Two fair six-sided dice are rolled and S is the sum of the faces. Compute the probability that S = 7 occurs <b>at least once</b> in 10 trials.`,
+  steps:[
+   "First get the per-trial probability. Of 36 equally likely ordered pairs, six sum to 7: (1,6)(2,5)(3,4)(4,3)(5,2)(6,1). So p = 6/36 = 1/6.",
+   "Now read 'at least once' and reach straight for the complement. The opposite is a single clean event: no seven in any of the 10 rolls.",
+   "The rolls are independent, so P(no seven) = (5/6)¹⁰.",
+   "(5/6)¹⁰ ≈ 0.1615.",
+   "P(at least one) = 1 − 0.1615 ≈ 0.8385.",
+   "Do not compute 10 × (1/6) ≈ 1.67. That is an expected count, not a probability, and a probability above 1 is the giveaway."],
+ },
+ {id:'p8', pts:null, title:'Continuous distributions',
+  body:`The sample paper leaves this one open: <span class="text-neutral-500">"Maybe one problem on continuous distributions."</span> So here is the shape such a question usually takes.<br><br>
+A random variable has density f(x) = c·x² for 0 ≤ x ≤ 3, and 0 elsewhere. Find c, then compute P(1 ≤ X ≤ 2) and E[X].`,
+  steps:[
+   "A density has to enclose total area 1. That single fact gives you c.",
+   "∫₀³ c·x² dx = c·[x³/3]₀³ = c·9. Setting 9c = 1 gives c = 1/9.",
+   "P(1 ≤ X ≤ 2) = ∫₁² (1/9)x² dx = (1/9)[x³/3]₁² = (1/9)(8/3 − 1/3) = (1/9)(7/3) = 7/27 ≈ 0.259.",
+   "E[X] = ∫₀³ x·(1/9)x² dx = (1/9)[x⁴/4]₀³ = (1/9)(81/4) = 9/4 = 2.25.",
+   "Check it is believable: the density grows with x, so the mass piles up near 3, and a mean of 2.25 on [0,3] sits where it should.",
+   "The habit to carry: for a continuous variable, probability is always an area. P(X = 2) = 0, and f(2) is a height, not a probability."],
+ },
+];
+
+/* ---------------------------------------------------------------- engine -- */
+const el = s => document.querySelector(s);
+const esc = t => String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pctS = x => (x*100).toFixed(0)+'%';
+
+function statFor(id){ return STATS[id] || (STATS[id]={seen:0,correct:0,box:0,lastSession:-1}); }
+function subFor(s){ return SUBS[s] || (SUBS[s]={att:0,ok:0,recent:[]}); }
+
+function record(q, correct, seconds, assisted){
+  const s = statFor(q.id);
+  s.seen++; s.lastSession = SESSION.n;
+  // A correct answer that needed the method card is not clean evidence. Count the
+  // attempt, but don't promote the Leitner box — promotion should mean "I had this".
+  if(correct){ s.correct++; if(!assisted) s.box = Math.min(4, s.box+1); }
+  else s.box = 0;
+  put(LS.stats, STATS);
+
+  const sub = subFor(q.sub);
+  sub.att++; if(correct) sub.ok++;
+  // Assisted CORRECT answers stay out of the mastery window; assisted misses count.
+  if(!(assisted && correct)){
+    sub.recent.push(correct?1:0);
+    if(sub.recent.length > MASTERY_WIN) sub.recent.shift();
+  }
+  put(LS.subs, SUBS);
+
+  RECENT.push(correct?1:0);
+  if(RECENT.length > FORM_WIN) RECENT.shift();
+  put(LS.recent, RECENT);
+
+  if(seconds > 0 && seconds <= IDLE_CAP){
+    PACE.push(seconds); if(PACE.length > 40) PACE.shift(); put(LS.pace, PACE);
+  }
+}
+
+const form = () => RECENT.length ? RECENT.reduce((a,b)=>a+b,0)/RECENT.length : 0;
+function mastered(sub){
+  const s = SUBS[sub]; if(!s || s.att < MASTERY_MIN || s.recent.length < MASTERY_WIN) return false;
+  return s.recent.reduce((a,b)=>a+b,0)/s.recent.length >= MASTERY_ACC;
+}
+function subAcc(sub){
+  const s = SUBS[sub]; if(!s || !s.recent.length) return null;
+  return s.recent.reduce((a,b)=>a+b,0)/s.recent.length;
+}
+
+/* Difficulty band. Above the target band you are coasting, so push up; below it
+   you are guessing, so drop back. The band is 80-85% because that is where the
+   evidence puts fastest learning — not because hard feels productive. */
+function band(){
+  const f = form();
+  if(RECENT.length < 8) return [1,2];
+  if(f > TARGET_HI) return [2,3];
+  if(f < TARGET_LO) return [1,2];
+  return [1,3];
+}
+
+/* Pick the next practice item. Priority order:
+     1. anything due back by Leitner box (spacing)
+     2. the weakest subtype you have not mastered (remediation)
+     3. an occasional mastered item to keep it warm (maintenance)
+     4. anything in band (interleaving)
+   Interleaving matters: blocking by topic feels better and teaches less, because
+   you stop having to work out WHICH method applies. */
+let lastIds = [];
+function pick(){
+  const [lo,hi] = band();
+  const inBand = q => q.d >= lo && q.d <= hi;
+  const fresh  = q => !lastIds.includes(q.id);
+  const pool   = Q.filter(q => inBand(q) && fresh(q));
+  const P = pool.length ? pool : Q.filter(fresh);
+  if(!P.length) { lastIds = []; return Q[Math.floor(Math.random()*Q.length)]; }
+
+  const due = P.filter(q => { const s = STATS[q.id]; return s && s.box>0 && (SESSION.n - s.lastSession) >= Math.pow(2, s.box-1); });
+  if(due.length && Math.random() < .35) return rnd(due);
+
+  const weak = ALLSUBS.filter(s => !mastered(s)).sort((a,b)=>(subAcc(a)??0)-(subAcc(b)??0));
+  if(weak.length && Math.random() < .45){
+    const target = weak[Math.floor(Math.random()*Math.min(3, weak.length))];
+    const m = P.filter(q => q.sub === target);
+    if(m.length) return rnd(m);
+  }
+  const unseen = P.filter(q => !STATS[q.id]);
+  if(unseen.length && Math.random() < .5) return rnd(unseen);
+  return rnd(P);
+}
+const rnd = a => a[Math.floor(Math.random()*a.length)];
+function remember(id){ lastIds.push(id); if(lastIds.length > 25) lastIds.shift(); }
+
+/* ------------------------------------------------------------- flashcards --
+   SM-2-lite. Cards are definitions and formulas — the things you should not be
+   re-deriving under time pressure. Grading is self-report, which is fine here
+   because the cost of lying is your own exam. */
+const DECK = [
+  ["Mutually exclusive","P(A∩B) = 0 — they cannot both happen."],
+  ["Independent","P(A∩B) = P(A)·P(B) — one tells you nothing about the other."],
+  ["Can two events with P > 0 be both exclusive and independent?","No. Exclusive forces the overlap to 0; independent forces it above 0."],
+  ["Addition rule","P(A∪B) = P(A) + P(B) − P(A∩B)."],
+  ["A but not B","P(A∩Bᶜ) = P(A) − P(A∩B)."],
+  ["Exactly one of A, B","P(A) + P(B) − 2P(A∩B). Note the 2."],
+  ["Definition of conditional probability","P(A|B) = P(A∩B)/P(B), for P(B) > 0."],
+  ["Multiplication rule","P(A∩B) = P(A|B)·P(B)."],
+  ["Complement rule, conditional","P(Aᶜ|B) = 1 − P(A|B)."],
+  ["Law of total probability","P(E) = Σ P(E|Gᵢ)·P(Gᵢ) over a partition {Gᵢ}."],
+  ["Bayes' theorem","P(G|E) = P(E|G)P(G) / P(E), with P(E) from total probability."],
+  ["C(n,k)","n!/(k!(n−k)!) — order does not matter."],
+  ["Permutations of k from n","n!/(n−k)! — order does matter; k! times bigger than C(n,k)."],
+  ["Two conditions for a valid pmf","Every value ≥ 0, and they sum to exactly 1."],
+  ["Geometric series ∑ arˣ from x=1","a/(1−r), for |r| < 1."],
+  ["Geometric: P(X ≥ k)","(1−p)^(k−1) — the first k−1 trials all failed."],
+  ["Geometric: E[X]","1/p, counting the successful trial."],
+  ["P(at least one) in n independent trials","1 − (1−p)ⁿ."],
+  ["Binomial P(exactly k)","C(n,k) pᵏ (1−p)^(n−k)."],
+  ["Two dice: P(sum = 7)","6/36 = 1/6 — the most likely sum."],
+  ["Continuous: P(X = x)","0, for every x. A point has no width."],
+  ["Is a density f(x) a probability?","No — it is a height. Probability is the area underneath, and f(x) may exceed 1."],
+  ["Finding the constant in a density","Integrate over the whole range, set equal to 1, solve."],
+  ["Uniform on [0,b]: P(a₁ ≤ X ≤ a₂)","(a₂ − a₁)/b."],
+  ["E[X] for a continuous X","∫ x·f(x) dx over the range."],
+];
+function cardFor(i){ return CARDS[i] || (CARDS[i]={ease:2.5, iv:0, due:0}); }
+function gradeCard(i, g){           // g: 0 again, 1 hard, 2 good, 3 easy
+  const c = cardFor(i);
+  if(g === 0){ c.iv = 0; c.ease = Math.max(1.3, c.ease - .2); }
+  else {
+    c.iv = c.iv === 0 ? 1 : Math.round(c.iv * c.ease * (g===1?.7:g===3?1.3:1));
+    c.ease = Math.min(3.2, Math.max(1.3, c.ease + (g===3?.1:g===1?-.15:0)));
+  }
+  c.due = SESSION.n + c.iv;
+  put(LS.cards, CARDS);
+}
+
+/* ----------------------------------------------------------------- views -- */
+function render(){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on', t.dataset.tab===tab));
+  const v = el('#view');
+  if(tab==='intro') v.innerHTML = vIntro();
+  else if(tab==='paper') v.innerHTML = vPaper();
+  else if(tab==='practice') vPractice();
+  else if(tab==='exam') vExam();
+  else if(tab==='cards') vCards();
+  else v.innerHTML = vStats();
+}
+
+function vIntro(){
+  const done = Object.keys(STATS).length;
+  const m = ALLSUBS.filter(mastered).length;
+  return `
+  <div class="card p-5 mb-5">
+    <h2 class="font-semibold mb-2">What this is</h2>
+    <p class="text-sm text-neutral-300 leading-relaxed mb-3">
+      A trainer for the STAT UN1201 midterm, built from the Fall 2026 <em>sample</em> paper.
+      ${Q.length} questions across ${ALLSUBS.length} topics, the eight sample problems worked through
+      one step at a time, and ${DECK.length} flashcards for the formulas you should not be re-deriving
+      under time pressure.
+    </p>
+    <div class="grid grid-cols-3 gap-3 text-center my-4">
+      <div><div class="text-2xl font-semibold">${done}</div><div class="text-[11px] text-neutral-500">questions seen</div></div>
+      <div><div class="text-2xl font-semibold">${RECENT.length ? pctS(form()) : '—'}</div><div class="text-[11px] text-neutral-500">current form</div></div>
+      <div><div class="text-2xl font-semibold">${m}<span class="text-neutral-600 text-base">/${ALLSUBS.length}</span></div><div class="text-[11px] text-neutral-500">topics mastered</div></div>
+    </div>
+    <div class="flex gap-2 flex-wrap">
+      <button class="btn" data-go="practice">Start practising</button>
+      <button class="btn ghost" data-go="paper">Walk the sample paper</button>
+    </div>
+  </div>
+
+  <div class="card p-5 mb-5">
+    <h2 class="font-semibold mb-3">How to use it</h2>
+    <ol class="text-sm text-neutral-300 leading-relaxed list-decimal pl-5 space-y-2">
+      <li><b>Walk the paper first.</b> Eight problems, each revealed a step at a time. Try the step
+          yourself before you open it — the trying is what does the work.</li>
+      <li><b>Then practise.</b> Questions are picked for you: whatever topic you are weakest at,
+          mixed with older material that is due back.</li>
+      <li><b>Sit the exam when your form is above 80%.</b> Timed, weighted the way the real paper is.</li>
+      <li><b>Flashcards on the days between.</b> Five minutes. They schedule themselves.</li>
+    </ol>
+  </div>
+
+  <div class="card p-5">
+    <h2 class="font-semibold mb-3">Why it works this way</h2>
+    <div class="text-sm text-neutral-400 leading-relaxed space-y-3">
+      <p><b class="text-neutral-200">You answer before you see anything.</b> Pulling an answer out of your
+         own head teaches far more than reading one. Re-reading notes feels productive and mostly is not.
+         <a class="underline hover:text-neutral-200" href="https://doi.org/10.1111/j.1467-9280.2006.01693.x" target="_blank" rel="noopener">Roediger &amp; Karpicke 2006</a></p>
+      <p><b class="text-neutral-200">Old questions come back on a schedule.</b> Reviewing something just
+         before you would have forgotten it beats massing it all in one night.
+         <a class="underline hover:text-neutral-200" href="https://doi.org/10.1037/0033-2909.132.3.354" target="_blank" rel="noopener">Cepeda et al. 2006</a></p>
+      <p><b class="text-neutral-200">Difficulty steers toward 80–85% correct.</b> Too easy wastes the
+         session; too hard and you are guessing rather than learning.
+         <a class="underline hover:text-neutral-200" href="https://www.nature.com/articles/s41467-019-12552-4" target="_blank" rel="noopener">Wilson et al. 2019</a></p>
+      <p><b class="text-neutral-200">Every answer shows the method, not just the arithmetic.</b> Knowing
+         why 0.40 is right here does nothing for the next question. Knowing that "exactly one of them"
+         always means subtracting the overlap twice does.
+         <a class="underline hover:text-neutral-200" href="https://doi.org/10.1207/s15326985ep4102_1" target="_blank" rel="noopener">Kirschner, Sweller &amp; Clark 2006</a></p>
+      <p><b class="text-neutral-200">Topics are interleaved, not blocked.</b> Doing ten Bayes questions in
+         a row is easier and teaches less, because you never have to work out which method applies —
+         which is the part the exam actually tests.</p>
+      <p class="text-neutral-500 text-xs pt-1">No streaks, no points, no badges. Rewards for right answers
+         do not build durable motivation and can crowd out the real kind. The only thing tracked is whether
+         you are getting better, on the Stats tab.</p>
+    </div>
+  </div>`;
+}
+
+function vPaper(){
+  return `<p class="text-sm text-neutral-400 mb-4">
+    The eight problems from the sample paper. Open one step at a time, and try the step yourself first —
+    if you read all six steps straight down you will feel like you understood it and will not be able to
+    do it tomorrow.</p>` +
+  PROBLEMS.map(p=>{
+    const open = PAPER_STATE(p.id);
+    return `<details class="card p-4 mb-3" ${open?'open':''} data-paper="${p.id}">
+      <summary class="font-semibold text-sm">
+        ${esc(p.title)}
+        <span class="text-neutral-600 font-normal ml-1">${p.pts?p.pts+' pts':'open-ended'}</span>
+        ${open?'<span class="text-[11px] text-neutral-600 ml-1">· opened</span>':''}
+      </summary>
+      <div class="text-sm text-neutral-300 leading-relaxed mt-3 mb-4">${p.body}</div>
+      <div class="space-y-2">
+        ${p.steps.map((s,i)=>`
+          <details class="border border-neutral-800 rounded px-3 py-2" data-step="${p.id}:${i}">
+            <summary class="text-xs text-neutral-500">Step ${i+1}${i===p.steps.length-1?' — what to carry':''}</summary>
+            <p class="text-sm text-neutral-300 leading-relaxed mt-2">${s}</p>
+          </details>`).join('')}
+      </div>
+    </details>`;
+  }).join('');
+}
+function PAPER_STATE(id){ return !!PAPER_OPEN[id]; }
+
+/* ------------------------------------------------------------- practice -- */
+let cur=null, answered=false, tStart=0, usedMethod=false;
+
+function vPractice(){
+  if(!cur){ cur = pick(); remember(cur.id); answered=false; usedMethod=false; tStart=Date.now(); }
+  const q = cur, [lo,hi] = band();
+  el('#view').innerHTML = `
+    <div class="flex items-center justify-between text-[11px] text-neutral-500 mb-3">
+      <span>${esc(q.c)} · ${esc(q.sub)}${mastered(q.sub)?' · <span class="text-green-600">mastered</span>':''}</span>
+      <span>form ${RECENT.length?pctS(form()):'—'} · difficulty ${lo}–${hi}</span>
+    </div>
+    <div class="card p-5 mb-4">
+      <p class="text-[15px] leading-relaxed mb-4">${q.q}</p>
+      <div id="opts">${q.o.map((o,i)=>`<button class="opt text-sm" data-i="${i}">${o}</button>`).join('')}</div>
+    </div>
+    <div id="after"></div>
+    <div class="flex gap-2 mt-3">
+      <button class="btn ghost text-xs" id="method">Show the method</button>
+      <button class="btn ghost text-xs" id="skip">Skip</button>
+    </div>`;
+  el('#opts').onclick = e => {
+    const b = e.target.closest('[data-i]'); if(!b || answered) return;
+    answerPractice(+b.dataset.i);
+  };
+  el('#method').onclick = () => { usedMethod = true; showMethod(q.sub); };
+  el('#skip').onclick = () => { cur=null; render(); };
+}
+
+function showMethod(sub){
+  const m = METHODS[sub]; if(!m) return;
+  const box = el('#after');
+  if(box.querySelector('[data-method]')) return;
+  box.insertAdjacentHTML('afterbegin',
+    `<div class="card p-4 mb-3 border-neutral-700" data-method>
+       <div class="text-[11px] uppercase tracking-wider text-neutral-500 mb-2">The method · ${esc(sub)}</div>
+       <p class="text-sm text-neutral-300 leading-relaxed whitespace-pre-line">${esc(m)}</p>
+     </div>`);
+}
+
+function answerPractice(i){
+  answered = true;
+  const q = cur, ok = i === q.a;
+  const secs = Math.round((Date.now()-tStart)/1000);
+  record(q, ok, secs, usedMethod);
+  document.querySelectorAll('#opts .opt').forEach((b,j)=>{
+    b.disabled = true;
+    if(j === q.a) b.classList.add('correct');
+    else if(j === i) b.classList.add('wrong');
+  });
+  // Feedback is about the work, never about the person — no "nice job", no "oops".
+  // A third of feedback interventions make performance worse, and the ones aimed at
+  // the self are the culprits.
+  el('#after').innerHTML = `
+    <div class="card p-4 mb-3">
+      <div class="text-[11px] uppercase tracking-wider ${ok?'text-green-500':'text-red-400'} mb-2">
+        ${ok ? 'Correct' : 'Not this time — the answer is '+esc(q.o[q.a])}
+      </div>
+      <p class="text-sm text-neutral-300 leading-relaxed">${q.e}</p>
+    </div>
+    <button class="btn" id="next">Next question</button>`;
+  // On a miss the method card is not optional — that is the thing worth carrying.
+  if(!ok) showMethod(q.sub);
+  el('#next').onclick = () => { cur=null; render(); };
+}
+
+/* ----------------------------------------------------------------- exam --
+   Weighted to the real paper: the point split across topics, 20 questions,
+   40 minutes. It cannot mark a proof, so Problem 2's content appears as the
+   steps of a proof instead. */
+const EXAM_N = 20, EXAM_SECS = 40*60;
+const EXAM_MIX = {"Sets & Events":5, "Conditional":5, "Bayes":3, "Counting":3, "Discrete RVs":3, "Continuous RVs":1};
+let EX = null;
+
+function vExam(){
+  if(!EX){
+    el('#view').innerHTML = `
+      <div class="card p-5">
+        <h2 class="font-semibold mb-2">Timed exam</h2>
+        <p class="text-sm text-neutral-300 leading-relaxed mb-3">
+          ${EXAM_N} questions, ${EXAM_SECS/60} minutes, weighted the way the real paper is:
+          ${Object.entries(EXAM_MIX).map(([k,v])=>`${v} ${esc(k.toLowerCase())}`).join(', ')}.
+          No method cards, no going back.
+        </p>
+        <p class="text-xs text-neutral-500 mb-4">
+          ${RECENT.length >= 20
+            ? (form() >= 0.8
+               ? 'Your form is above 80% — a good moment to sit one.'
+               : 'Your form is '+pctS(form())+'. Practice is usually the better use of the next hour, but it is your call.')
+            : 'You have not practised much yet. The exam will tell you less than practice will.'}
+        </p>
+        <button class="btn" id="startEx">Start</button>
+        ${HIST.length?`<div class="mt-5 pt-4 border-t border-neutral-800">
+          <div class="text-[11px] uppercase tracking-wider text-neutral-500 mb-2">Past attempts</div>
+          ${HIST.slice(-6).reverse().map(h=>`<div class="text-xs text-neutral-400 mb-1">
+            ${new Date(h.ts).toLocaleDateString()} — ${h.score}/${h.total} (${pctS(h.score/h.total)}) in ${Math.round(h.dur/60)} min</div>`).join('')}
+        </div>`:''}
+      </div>`;
+    el('#startEx').onclick = startExam;
+    return;
+  }
+  renderExamQ();
+}
+
+function startExam(){
+  const picked = [];
+  for(const [cat,n] of Object.entries(EXAM_MIX)){
+    const pool = Q.filter(q=>q.c===cat);
+    for(let i=0;i<n && pool.length;i++){
+      const k = Math.floor(Math.random()*pool.length);
+      picked.push(pool.splice(k,1)[0]);
+    }
+  }
+  for(let i=picked.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [picked[i],picked[j]]=[picked[j],picked[i]]; }
+  EX = {qs:picked, i:0, ans:[], t0:Date.now(), timer:null};
+  EX.timer = setInterval(()=>{
+    const left = EXAM_SECS - Math.floor((Date.now()-EX.t0)/1000);
+    const c = el('#clock'); if(c) c.textContent = fmt(left);
+    if(left<=0) finishExam();
+  }, 500);
+  render();
+}
+const fmt = s => s<=0?'0:00':`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+
+function renderExamQ(){
+  const q = EX.qs[EX.i];
+  if(!q) return finishExam();
+  const left = EXAM_SECS - Math.floor((Date.now()-EX.t0)/1000);
+  el('#view').innerHTML = `
+    <div class="flex items-center justify-between text-xs mb-3">
+      <span class="text-neutral-500">${EX.i+1} of ${EX.qs.length}</span>
+      <span class="mono ${left<120?'text-red-400':'text-neutral-400'}" id="clock">${fmt(left)}</span>
+    </div>
+    <div class="bar mb-4"><i style="width:${(EX.i/EX.qs.length)*100}%"></i></div>
+    <div class="card p-5">
+      <p class="text-[15px] leading-relaxed mb-4">${q.q}</p>
+      <div id="opts">${q.o.map((o,i)=>`<button class="opt text-sm" data-i="${i}">${o}</button>`).join('')}</div>
+    </div>`;
+  el('#opts').onclick = e => {
+    const b = e.target.closest('[data-i]'); if(!b) return;
+    EX.ans.push({q, pick:+b.dataset.i});
+    EX.i++; renderExamQ();
+  };
+}
+
+function finishExam(){
+  clearInterval(EX.timer);
+  const dur = Math.round((Date.now()-EX.t0)/1000);
+  let score = 0; const byCat = {};
+  EX.ans.forEach(({q,pick})=>{
+    const ok = pick === q.a; if(ok) score++;
+    (byCat[q.c] = byCat[q.c] || {n:0,ok:0}).n++; if(ok) byCat[q.c].ok++;
+    record(q, ok, 0, false);
+  });
+  HIST.push({ts:Date.now(), score, total:EX.qs.length, dur, catAcc:byCat}); put(LS.hist, HIST);
+  SESSION.n++; put(LS.session, SESSION);
+  const wrong = EX.ans.filter(({q,pick})=>pick!==q.a);
+  el('#view').innerHTML = `
+    <div class="card p-5 mb-4">
+      <div class="text-3xl font-semibold">${score}<span class="text-neutral-600 text-xl">/${EX.qs.length}</span></div>
+      <div class="text-sm text-neutral-400 mt-1">${pctS(score/EX.qs.length)} in ${Math.round(dur/60)} minutes</div>
+      <div class="mt-4 space-y-1">
+        ${Object.entries(byCat).map(([c,v])=>`<div class="flex justify-between text-xs">
+          <span class="text-neutral-400">${esc(c)}</span><span class="mono">${v.ok}/${v.n}</span></div>`).join('')}
+      </div>
+    </div>
+    ${wrong.length?`<div class="card p-5 mb-4">
+      <div class="text-[11px] uppercase tracking-wider text-neutral-500 mb-3">What to go back to</div>
+      ${[...new Set(wrong.map(w=>w.q.sub))].map(s=>`
+        <details class="border border-neutral-800 rounded px-3 py-2 mb-2">
+          <summary class="text-sm">${esc(s)} <span class="text-neutral-600 text-xs">· ${wrong.filter(w=>w.q.sub===s).length} missed</span></summary>
+          <p class="text-sm text-neutral-300 leading-relaxed mt-2 whitespace-pre-line">${esc(METHODS[s]||'')}</p>
+        </details>`).join('')}
+    </div>`:''}
+    <button class="btn" id="again">Back to practice</button>`;
+  el('#again').onclick = ()=>{ EX=null; tab='practice'; cur=null; render(); };
+}
+
+/* ----------------------------------------------------------- flashcards -- */
+let card=null, cardShown=false;
+function vCards(){
+  const due = DECK.map((d,i)=>i).filter(i=>cardFor(i).due <= SESSION.n);
+  const pool = due.length ? due : DECK.map((d,i)=>i);
+  if(card===null) card = pool[Math.floor(Math.random()*pool.length)];
+  const [front, back] = DECK[card];
+  el('#view').innerHTML = `
+    <div class="text-[11px] text-neutral-500 mb-3">${due.length} due · ${DECK.length} in the deck</div>
+    <div class="card p-6 mb-4 min-h-[9rem] flex flex-col justify-center">
+      <p class="text-base leading-relaxed">${esc(front)}</p>
+      ${cardShown?`<hr class="border-neutral-800 my-4"><p class="text-sm text-neutral-300 leading-relaxed">${esc(back)}</p>`:''}
+    </div>
+    ${cardShown
+      ? `<div class="flex gap-2 flex-wrap">
+           <button class="btn ghost text-xs" data-g="0">Again</button>
+           <button class="btn ghost text-xs" data-g="1">Hard</button>
+           <button class="btn text-xs" data-g="2">Good</button>
+           <button class="btn ghost text-xs" data-g="3">Easy</button>
+         </div>
+         <p class="text-[11px] text-neutral-600 mt-3">Grade honestly. "Good" when you produced it before looking; "Again" when you did not.</p>`
+      : `<button class="btn" id="flip">Show answer</button>
+         <p class="text-[11px] text-neutral-600 mt-3">Say it out loud first. Recognising it when you see it is not the same as having it.</p>`}`;
+  if(!cardShown) el('#flip').onclick = ()=>{ cardShown=true; render(); };
+  else el('#view').onclick = e => {
+    const b = e.target.closest('[data-g]'); if(!b) return;
+    gradeCard(card, +b.dataset.g); card=null; cardShown=false; render();
+  };
+}
+
+/* ---------------------------------------------------------------- stats -- */
+function vStats(){
+  const seen = Object.values(STATS).reduce((a,s)=>a+s.seen,0);
+  const paceAvg = PACE.length ? PACE.reduce((a,b)=>a+b,0)/PACE.length : null;
+  const rows = ALLSUBS.map(s=>({s, acc:subAcc(s), att:(SUBS[s]||{}).att||0, m:mastered(s)}))
+                      .sort((a,b)=>(a.acc??2)-(b.acc??2));
+  const weakest = rows.filter(r=>r.acc!==null && !r.m).slice(0,3);
+  return `
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+    ${[['answers', seen],
+       ['current form', RECENT.length?pctS(form()):'—'],
+       ['topics mastered', ALLSUBS.filter(mastered).length+'/'+ALLSUBS.length],
+       ['sec / question', paceAvg?Math.round(paceAvg):'—']]
+      .map(([k,v])=>`<div class="card p-3 text-center"><div class="text-xl font-semibold">${v}</div>
+        <div class="text-[10px] text-neutral-500 mt-1">${k}</div></div>`).join('')}
+  </div>
+
+  ${weakest.length?`<div class="card p-5 mb-5">
+    <div class="text-[11px] uppercase tracking-wider text-neutral-500 mb-2">Where the next hour should go</div>
+    ${weakest.map(r=>`<div class="text-sm mb-2">
+      <span class="text-neutral-200">${esc(r.s)}</span>
+      <span class="text-neutral-500 text-xs"> — ${pctS(r.acc)} over your last ${Math.min(MASTERY_WIN,(SUBS[r.s]||{recent:[]}).recent.length)}</span>
+    </div>`).join('')}
+    <p class="text-xs text-neutral-500 mt-2">Practice already favours these. This is just so you can see why.</p>
+  </div>`:''}
+
+  <details class="card p-5 mb-5">
+    <summary class="text-sm font-semibold">Mastery by topic</summary>
+    <div class="mt-3 space-y-2">
+      ${rows.map(r=>`
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="${r.m?'text-green-500':'text-neutral-300'}">${esc(r.s)}${r.m?' ✓':''}</span>
+            <span class="text-neutral-500 mono">${r.acc===null?'not tried':pctS(r.acc)+' · '+r.att+' att'}</span>
+          </div>
+          <div class="bar"><i style="width:${(r.acc??0)*100}%;background:${r.m?'#4ade80':r.acc===null?'#333':'#eab308'}"></i></div>
+        </div>`).join('')}
+    </div>
+    <p class="text-xs text-neutral-500 mt-3">Mastered means ${Math.round(MASTERY_ACC*100)}% or better across your last
+      ${MASTERY_WIN} attempts, with at least ${MASTERY_MIN} attempts. It is a rolling window, not a lifetime
+      average — one bad start should not follow you around, and one good run should not be permanent.</p>
+  </details>
+
+  ${HIST.length?`<div class="card p-5">
+    <div class="text-[11px] uppercase tracking-wider text-neutral-500 mb-3">Exam history</div>
+    ${HIST.slice(-8).reverse().map(h=>`<div class="flex justify-between text-sm mb-1">
+      <span class="text-neutral-400">${new Date(h.ts).toLocaleDateString()}</span>
+      <span class="mono">${h.score}/${h.total} · ${Math.round(h.dur/60)} min</span></div>`).join('')}
+  </div>`:''}`;
+}
+
+/* ------------------------------------------------------------------ boot -- */
+el('#tabs').onclick = e => { const t = e.target.closest('.tab'); if(!t) return; tab = t.dataset.tab; cur=null; card=null; cardShown=false; render(); };
+document.addEventListener('click', e => {
+  const g = e.target.closest('[data-go]'); if(g){ tab = g.dataset.go; render(); return; }
+  const d = e.target.closest('details[data-paper]');
+  if(d && !PAPER_OPEN[d.dataset.paper]){ PAPER_OPEN[d.dataset.paper] = 1; put(LS.paper, PAPER_OPEN); }
+});
+el('#wipe').onclick = () => {
+  if(!confirm('Erase all progress on this device? This cannot be undone.')) return;
+  Object.values(LS).forEach(k=>localStorage.removeItem(k));
+  location.reload();
+};
+document.addEventListener('keydown', e => {
+  if(tab!=='practice' || !cur) return;
+  const n = parseInt(e.key,10);
+  if(n>=1 && n<=cur.o.length && !answered) answerPractice(n-1);
+  else if((e.key==='Enter'||e.key===' ') && answered){ e.preventDefault(); cur=null; render(); }
+});
+
+fetch('../../data/stat1201-questions.json').then(r=>r.json()).then(data=>{
+  Q = data;
+  QMAP = Object.fromEntries(Q.map(q=>[q.id,q]));
+  ALLSUBS = [...new Set(Q.map(q=>q.sub))];
+  CATS = [...new Set(Q.map(q=>q.c))];
+  SESSION.n++; put(LS.session, SESSION);
+  render();
+}).catch(()=>{
+  el('#view').innerHTML = `<div class="card p-5 text-sm text-neutral-400">
+    Could not load the question bank. If you opened this file directly from disk, your browser blocks the
+    fetch — serve the folder over http instead, or open it from the published page.</div>`;
+});
+</script>
+</body>
+</html>

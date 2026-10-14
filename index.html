@@ -45,6 +45,7 @@ const now = () => Date.now();
 const nameOf = (id) => (nodes.find((n) => n.id === id) || {}).name || id;
 const r = (s) => (html ? String(s ?? "") : esc(s));
 const pct = (x) => Math.round(x * 100);
+const trainerCard = () => (course.spec && course.spec.trainer_url ? `<a class="card p-3 mt-5 row block" href="${esc(course.spec.trainer_url)}"><div class="text-sm font-bold">Open the full trainer →</div><div class="sub mt-1">Worked walkthroughs of the sample paper, a timed exam and flashcards, in one page.</div></a>` : "");
 const fmtDay = (t) => { const d = Math.round((t - now()) / 86400000); return d <= 0 ? "today" : d === 1 ? "tomorrow" : "in " + d + " days"; };
 
 // ---------- persistence: local first, synced to the account when there is one ----------
@@ -99,7 +100,7 @@ function wireAccount() {
   save_.onclick = async () => {
     const email = $("em").value.trim(); if (!email) return msg("Enter an email first.");
     const { error } = await sb.auth.updateUser({ email }, { emailRedirectTo: location.href });
-    msg(error ? error.message : "Check your email and click the link to confirm. Then your account is saved.");
+    msg(error ? error.message : "Check your inbox for an email from Supabase Auth (it may be titled \"Confirm Change of Email\"). That is the right one: click the link in it and your account is saved.");
   };
   $("em-in").onclick = async () => {
     const email = $("em").value.trim(); if (!email) return msg("Enter your email first.");
@@ -165,7 +166,7 @@ function intro() {
   const dflt = course.test_date || "";
   app.innerHTML = `<a href="./" class="block text-xs text-gray-500 hover:text-white mt-4">← Library</a>
     <h1 class="text-2xl font-bold mt-1">${esc(course.title)}</h1>
-    <p class="sub mt-1">${esc(course.subject || "")}${course.author ? " · by " + esc(course.author) : ""} · ${nodes.length} concepts</p>
+    <p class="sub mt-1">${esc(course.subject || "")}${course.author ? " · by " + esc(course.author) : ""} · ${nodes.length} concepts</p>${trainerCard()}
     <div class="card p-5 mt-6"><div class="font-bold">How much of this do you already know?</div>
       <p class="sub mt-1">Be honest. If you say some or all, you'll answer a short test so the course skips what you know and starts where you need it.</p>
       <div class="mt-4 space-y-2"><button class="opt" data-r="none">I know nothing</button><button class="opt" data-r="some">I know some</button><button class="opt" data-r="all">I know all of it</button></div>
@@ -221,6 +222,7 @@ function today() {
       <div class="card p-3"><div class="text-xl font-bold">${P.daysLeft}</div><div class="sub">days to test</div></div>
       <div class="card p-3"><div class="text-xl font-bold">${pct(P.readiness)}%</div><div class="sub">estimated readiness</div></div>
       <div class="card p-3"><div class="text-xl font-bold">${done}/${nodes.length}</div><div class="sub">concepts secure</div></div></div>
+    ${trainerCard()}
     <div class="sub mt-3">${P.remaining.length ? `${P.remaining.length} concept${P.remaining.length > 1 ? "s" : ""} to learn in ${P.teachDays} day${P.teachDays > 1 ? "s" : ""}${P.buffer ? `, then ${P.buffer} review-only` : ""} → about ${P.newPerDay} a day. ${P.onTrack ? '<span style="color:var(--acc)">On pace.</span>' : '<span style="color:var(--warn)">Behind pace. Do a little extra today.</span>'}` : "Everything is secure. Reviews keep it that way until the test."}
       · Test date <input id="td" type="date" value="${esc(S.testDate || "")}" style="padding:2px 6px;font-size:12px"></div>
     ${due.length ? `<div class="card p-4 mt-6"><div class="font-bold">Review due</div><div class="sub mt-1">${due.map(nameOf).map(esc).join(", ")}</div><button class="btn btn-p mt-3" id="rv">Start mixed review</button></div>` : ""}

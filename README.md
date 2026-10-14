@@ -4,6 +4,7 @@ Upload standards, a study guide or a syllabus, set a test date, and get a study 
 
 - **Library / player:** https://jamesfloydbiz.github.io/course-builder/
 - **Builder:** https://jamesfloydbiz.github.io/course-builder/build/
+- Full STAT 1201 trainer (by Emmanuella): https://jamesfloydbiz.github.io/course-builder/trainers/stat1201/
 - Part of [jamesfloyds.world](https://jamesfloyds.world/projects/tech-builds/)
 
 ## What it does
